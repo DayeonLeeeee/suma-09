@@ -1,0 +1,188 @@
+/* ─── Reset & Variables ─── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F6F3EC;--surface:#fff;--ink:#1A1814;--ink2:#4A453C;--ink3:#8B8478;
+  --ink0:#0D0B08;--hair:#E8E2D4;--hair2:#F0EBDF;
+  --accent:#D9603B;--accent-soft:#FBE9DF;--accent-ink:#7A2E15;
+  --ok:#3D7A4E;--warn:#C68E2A;
+  --radius:16px;--radius-sm:10px;
+}
+html{font-size:15px;-webkit-text-size-adjust:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--ink);
+  min-height:100dvh;overflow-x:hidden;
+}
+button{cursor:pointer;border:none;background:none;font:inherit;color:inherit}
+input,textarea{font:inherit;color:var(--ink)}
+img{display:block;max-width:100%}
+
+/* ─── Layout ─── */
+.screen{display:none;min-height:100dvh;flex-direction:column;padding:0 20px 100px}
+.screen.active{display:flex}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:12px 0;position:sticky;top:0;background:var(--bg);z-index:10}
+.nav-title{font-size:16px;font-weight:800}
+.nav-btn{
+  min-width:54px;height:36px;border-radius:18px;
+  background:var(--surface);border:1px solid var(--hair);
+  font-size:12px;font-weight:700;color:var(--ink2);
+  display:inline-flex;align-items:center;justify-content:center;
+}
+
+/* ─── Cards ─── */
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card-title{font-size:15px;font-weight:800;margin-bottom:10px}
+.muted{color:var(--ink3);font-size:13px;line-height:1.5}
+
+/* ─── Home ─── */
+.greeting{font-size:28px;font-weight:700;margin-top:2px}
+.subtitle{font-size:14px;color:var(--ink2);margin-top:4px}
+.date-label{font-size:11px;letter-spacing:1.5px;color:var(--ink3)}
+.empty-card{text-align:center;padding:28px}
+.empty-icon{font-size:26px;color:var(--ink3);margin-bottom:8px}
+.section-title{font-size:13px;font-weight:700;margin:16px 0 8px}
+
+.kpi-strip{display:flex;border:1px solid var(--hair2);border-radius:var(--radius-sm);background:var(--bg);padding:3px}
+.kpi-item{flex:1;padding:8px}
+.kpi-label{font-size:10px;color:var(--ink3);letter-spacing:.8px;margin-bottom:2px}
+.kpi-value{font-size:22px;font-weight:700}
+.kpi-value.muted-val{color:var(--ink3)}
+
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.menu-item{
+  background:var(--surface);border:1px solid var(--hair);border-radius:18px;
+  padding:14px;min-height:116px;display:flex;flex-direction:column;justify-content:space-between;
+}
+.menu-top{display:flex;justify-content:space-between;align-items:flex-start}
+.menu-icon{width:36px;height:36px;border-radius:10px;background:var(--bg);border:1px solid var(--hair2);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;color:var(--ink2)}
+.menu-tag{padding:3px 6px;border:1px solid var(--hair);border-radius:6px;font-size:10px;color:var(--ink3)}
+.menu-title{font-size:14px;font-weight:700}
+.menu-sub{font-size:11px;color:var(--ink3);margin-top:2px}
+
+/* ─── FAB ─── */
+.fab-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100}
+.fab{
+  width:60px;height:60px;border-radius:30px;background:var(--accent);
+  color:#fff;font-size:30px;font-weight:500;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 24px rgba(217,96,59,.35);
+}
+
+/* ─── Tab Bar ─── */
+.tab-bar{
+  position:fixed;bottom:0;left:0;right:0;
+  display:flex;background:var(--surface);border-top:1px solid var(--hair);
+  padding:8px 4px calc(env(safe-area-inset-bottom,8px) + 4px);z-index:90;
+}
+.tab-item{flex:1;text-align:center;font-size:10px;color:var(--ink3);font-weight:500;padding:8px 0}
+.tab-item.active{color:var(--ink);font-weight:800}
+
+/* ─── Camera / Upload ─── */
+.upload-area{
+  border:2px dashed var(--hair);border-radius:var(--radius);padding:48px 20px;
+  text-align:center;background:var(--surface);margin:20px 0;cursor:pointer;
+  transition:border-color .2s;
+}
+.upload-area:hover{border-color:var(--accent)}
+.upload-icon{font-size:48px;margin-bottom:12px}
+.upload-label{font-size:14px;font-weight:700;margin-bottom:4px}
+#file-input{display:none}
+
+/* ─── Preview ─── */
+.photo-wrap{
+  position:relative;height:220px;border-radius:var(--radius);overflow:hidden;
+  background:var(--ink0);margin-bottom:14px;
+}
+.photo-wrap img{width:100%;height:100%;object-fit:cover}
+.badge{
+  position:absolute;bottom:12px;left:14px;
+  background:var(--ink0);color:#fff;
+  padding:4px 10px;border-radius:6px;font-size:10px;font-weight:800;
+}
+.badge.solution{background:var(--accent)}
+
+/* ─── Crop ─── */
+.crop-canvas-wrap{position:relative;background:#0a0a0b;border-radius:8px;overflow:hidden;margin:12px 0;touch-action:none}
+.crop-canvas-wrap canvas{display:block;width:100%;cursor:crosshair}
+
+/* ─── Processing ─── */
+.processing{display:flex;align-items:center;gap:14px;padding:18px}
+.spinner{width:24px;height:24px;border:3px solid var(--hair);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── OCR Result ─── */
+.ocr-input{
+  width:100%;min-height:110px;border:1px solid var(--hair);background:var(--bg);
+  border-radius:var(--radius-sm);padding:12px;resize:vertical;
+}
+.math-preview{background:var(--bg);border-radius:var(--radius-sm);padding:12px;margin-top:10px}
+
+.step-editor-row{margin-bottom:10px}
+.step-label{color:var(--accent);font-weight:800;font-size:12px;margin-bottom:4px}
+.step-input{
+  width:100%;border:1px solid var(--hair);background:var(--bg);
+  border-radius:var(--radius-sm);padding:10px;
+}
+.add-step-btn{
+  width:100%;padding:12px;border:1px dashed var(--hair);border-radius:var(--radius-sm);
+  text-align:center;font-weight:800;color:var(--ink2);font-size:13px;
+}
+
+/* ─── Grading ─── */
+.banner{border-radius:var(--radius);padding:18px;border:1px solid;margin-bottom:14px}
+.banner.correct{background:#E8F5E9;border-color:#B7D7BE}
+.banner.wrong{background:var(--accent-soft);border-color:rgba(217,96,59,.33)}
+.banner-title{font-size:18px;font-weight:900;margin-bottom:6px}
+.banner-text{color:var(--ink2);font-size:13px;line-height:1.5}
+.confidence{color:var(--ink3);font-size:12px;margin-top:6px}
+
+.hint-tabs{display:flex;gap:8px;margin-bottom:12px}
+.hint-tab{
+  flex:1;padding:10px;border-radius:var(--radius-sm);
+  border:1px solid var(--hair);text-align:center;
+  font-size:12px;font-weight:800;color:var(--ink3);
+}
+.hint-tab.active{background:var(--ink0);border-color:var(--ink0);color:#fff}
+.hint-body{color:var(--ink2);line-height:1.5;font-size:14px}
+
+.step-row{display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--hair2)}
+.status-dot{width:10px;height:10px;border-radius:5px;margin-top:5px;flex-shrink:0}
+.step-status{font-size:12px;font-weight:800;margin-bottom:4px}
+.step-explanation{color:var(--ink3);font-size:12px;margin-top:6px;line-height:1.5}
+
+/* ─── Solution ─── */
+.problem-card{
+  background:var(--surface);border:1px solid var(--hair);
+  border-left:4px solid var(--accent);border-radius:14px;padding:16px;margin-bottom:14px;
+}
+.problem-card .label{color:var(--ink3);font-size:11px;font-weight:800;margin-bottom:8px}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{
+  background:var(--surface);border:1px solid var(--hair);border-radius:8px;
+  padding:6px 10px;font-size:12px;font-weight:700;color:var(--ink2);
+}
+.chip.accent{background:var(--accent-soft);border-color:rgba(217,96,59,.2);color:var(--accent-ink)}
+.sol-step{padding:12px 0;border-bottom:1px solid var(--hair2)}
+.sol-step-title{font-weight:800;font-size:14px;margin-bottom:8px}
+.formula-box{background:var(--bg);border:1px solid var(--hair);border-radius:var(--radius-sm);padding:12px;margin-top:8px}
+
+/* ─── Buttons ─── */
+.btn-row{display:flex;gap:10px;margin-top:14px}
+.btn-primary{
+  flex:1;background:var(--ink0);color:#fff;border-radius:14px;
+  padding:14px 18px;text-align:center;font-weight:800;font-size:14px;
+}
+.btn-secondary{
+  background:var(--surface);border:1px solid var(--hair);border-radius:14px;
+  padding:14px 16px;text-align:center;font-weight:800;color:var(--ink2);font-size:14px;
+}
+.btn-accent{background:var(--accent);color:#fff;border-radius:14px;padding:14px 18px;text-align:center;font-weight:800}
+
+/* ─── Center layout ─── */
+.center-msg{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:28px;gap:12px;text-align:center}
+.center-msg h2{font-size:20px;font-weight:800}
+.error-text{color:var(--accent);line-height:1.5}
+
+/* ─── KaTeX overrides ─── */
+.katex{font-size:1.05em !important}
+.katex-display{margin:.35em 0;overflow-x:auto;overflow-y:hidden}

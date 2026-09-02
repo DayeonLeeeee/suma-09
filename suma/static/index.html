@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>수마 — AI 수학 진단</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+<!-- ════════════ HOME ════════════ -->
+<div id="screen-home" class="screen active">
+  <div class="nav">
+    <div>
+      <div class="date-label" id="home-date"></div>
+      <div class="greeting">수마</div>
+      <div class="subtitle">문제를 촬영하고, AI가 채점합니다</div>
+    </div>
+  </div>
+
+  <div class="section-title">이번 주 학습 요약</div>
+  <div class="card">
+    <div class="kpi-strip">
+      <div class="kpi-item"><div class="kpi-label">제출</div><div class="kpi-value muted-val">-</div></div>
+      <div class="kpi-item"><div class="kpi-label">정답률</div><div class="kpi-value muted-val">-</div></div>
+      <div class="kpi-item"><div class="kpi-label">자기교정</div><div class="kpi-value muted-val">-</div></div>
+    </div>
+  </div>
+
+  <div class="section-title">메뉴</div>
+  <div class="menu-grid">
+    <div class="menu-item"><div class="menu-top"><div class="menu-icon">∑</div><div class="menu-tag">0</div></div><div><div class="menu-title">정식 문제</div><div class="menu-sub">모의고사 · 수능</div></div></div>
+    <div class="menu-item"><div class="menu-top"><div class="menu-icon">Q</div><div class="menu-tag">0건</div></div><div><div class="menu-title">질문 기록</div><div class="menu-sub">풀이와 오답</div></div></div>
+    <div class="menu-item"><div class="menu-top"><div class="menu-icon">★</div><div class="menu-tag">0세트</div></div><div><div class="menu-title">추천 문제</div><div class="menu-sub">나에게 맞는 문제</div></div></div>
+    <div class="menu-item"><div class="menu-top"><div class="menu-icon">B</div><div class="menu-tag">준비</div></div><div><div class="menu-title">게시판</div><div class="menu-sub">질문 · 공동 풀이</div></div></div>
+  </div>
+</div>
+
+<!-- ════════════ CAMERA (파일 업로드) ════════════ -->
+<div id="screen-camera" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('home')">✕</button>
+    <div class="nav-title" id="camera-title">문제 촬영</div>
+    <div style="width:54px"></div>
+  </div>
+
+  <div class="upload-area" id="upload-area">
+    <div class="upload-icon">📷</div>
+    <div class="upload-label">사진을 촬영하거나 선택하세요</div>
+    <div class="muted">탭하면 카메라 또는 갤러리가 열립니다</div>
+  </div>
+  <input type="file" id="file-input" accept="image/*">
+
+  <div id="upload-preview" style="display:none">
+    <div class="photo-wrap">
+      <img id="preview-img-upload">
+      <div class="badge" id="upload-badge">문제</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="openCrop()">영역 자르기</button>
+      <button class="btn-primary" onclick="runOCR()">OCR 인식하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ CROP ════════════ -->
+<div id="screen-crop" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('camera')">닫기</button>
+    <div class="nav-title">영역 선택</div>
+    <button class="nav-btn" onclick="resetCrop()">초기화</button>
+  </div>
+  <div class="crop-canvas-wrap">
+    <canvas id="crop-canvas"></canvas>
+  </div>
+  <div class="btn-row" style="margin-bottom:8px">
+    <button class="btn-secondary" style="flex:1" onclick="cropPreset('top')">상단</button>
+    <button class="btn-secondary" style="flex:1" onclick="cropPreset('bottom')">하단</button>
+    <button class="btn-secondary" style="flex:1" onclick="cropPreset('center')">중앙</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn-secondary" onclick="go('camera')">그대로 사용</button>
+    <button class="btn-primary" onclick="applyCrop()">자르기</button>
+  </div>
+</div>
+
+<!-- ════════════ PREVIEW (OCR 결과) ════════════ -->
+<div id="screen-preview" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('camera')">뒤로</button>
+    <div class="nav-title" id="preview-title">문제 확인</div>
+    <div style="width:54px"></div>
+  </div>
+
+  <div id="preview-processing" class="card processing" style="display:none">
+    <div class="spinner"></div>
+    <div><div class="card-title">인식 중입니다</div><div class="muted">서버에서 OCR을 처리하고 있습니다.</div></div>
+  </div>
+
+  <div id="preview-failed" style="display:none">
+    <div class="card">
+      <div class="card-title">인식 실패</div>
+      <div class="error-text" id="preview-error"></div>
+    </div>
+  </div>
+
+  <div id="preview-result" style="display:none">
+    <!-- 문제 모드 -->
+    <div id="problem-result">
+      <div class="card">
+        <div class="card-title">인식된 문제</div>
+        <textarea class="ocr-input" id="problem-text-input"></textarea>
+        <div class="math-preview" id="problem-math-preview"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="viewSolution()">해설 보기</button>
+        <button class="btn-primary" onclick="startSolutionCapture()">풀이 촬영</button>
+      </div>
+    </div>
+    <!-- 풀이 모드 -->
+    <div id="solution-result" style="display:none">
+      <div class="card">
+        <div class="card-title">인식된 풀이</div>
+        <div id="solution-steps-editor"></div>
+        <button class="add-step-btn" onclick="addStepInput()">+ 단계 추가</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="runGrading()">채점하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ GRADING ════════════ -->
+<div id="screen-grading" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('home')">뒤로</button>
+    <div class="nav-title">채점 결과</div>
+    <button class="nav-btn" onclick="runGrading()">다시</button>
+  </div>
+  <div id="grading-loading" class="center-msg">
+    <div class="spinner"></div>
+    <h2>채점 중입니다</h2>
+    <div class="muted">서버에서 분석하고 있습니다.</div>
+  </div>
+  <div id="grading-result" style="display:none"></div>
+</div>
+
+<!-- ════════════ SOLUTION ════════════ -->
+<div id="screen-solution" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('preview')">뒤로</button>
+    <div class="nav-title">해설 보기</div>
+    <button class="nav-btn" onclick="viewSolution()">다시</button>
+  </div>
+  <div id="solution-loading" class="center-msg">
+    <div class="spinner"></div>
+    <h2>해설 생성 중</h2>
+    <div class="muted">서버에서 풀이를 만들고 있습니다.</div>
+  </div>
+  <div id="solution-content" style="display:none"></div>
+</div>
+
+<!-- ════════════ FAB + TAB BAR ════════════ -->
+<div class="fab-wrap" id="fab-wrap">
+  <button class="fab" onclick="openCamera('problem')">+</button>
+</div>
+<div class="tab-bar" id="tab-bar">
+  <div class="tab-item active" onclick="go('home')">홈</div>
+  <div class="tab-item">기록</div>
+  <div class="tab-item" style="width:68px"></div>
+  <div class="tab-item">문제</div>
+  <div class="tab-item">마이</div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

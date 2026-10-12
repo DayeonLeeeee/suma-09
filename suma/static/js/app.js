@@ -1,27 +1,34 @@
 /* ═══════════════════════════════════════════════════
-   suma SPA — vanilla JS
+   suma SPA — 현장연구용 (2026-10)
+   학생 선택 → 배정 문제 → 풀이 촬영 → 채점 → 힌트
    ═══════════════════════════════════════════════════ */
 
 // ─── Config ──────────────────────────────────────────
 const API = location.origin + "/api";
 
-const SUPABASE_URL  = "https://ptlqoigzcomhdspmcgkb.supabase.co";
-const SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bHFvaWd6Y29taGRzcG1jZ2tiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MTQ4ODksImV4cCI6MjA5NjA5MDg4OX0.bq7zxOzmPeU6Q6-Od98zctze5-K-O0go9eellN3st-8";
+const SUPABASE_URL = "https://ptlqoigzcomhdspmcgkb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bHFvaWd6Y29taGRzcG1jZ2tiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MTQ4ODksImV4cCI6MjA5NjA5MDg4OX0.bq7zxOzmPeU6Q6-Od98zctze5-K-O0go9eellN3st-8";
 
 let sb = null;
-try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch(e) { console.warn("Supabase init skipped", e); }
+try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch (e) { console.warn("Supabase init skipped", e); }
 
 // ─── State ───────────────────────────────────────────
 const S = {
-  mode: "problem",           // "problem" | "solution"
-  imageDataUrl: null,        // base64 data URL
-  imageBase64: null,          // raw base64 (no prefix)
-  problemText: "",
-  problemLatex: "",
-  solutionSteps: [],          // [{index,text}]
-  studentId: null,
-  uploadProblemCode: null,
+  studentCode: null,       // 1~4
+  studentId: null,          // UUID from DB
+  problemSet: null,         // "P" or "Q"
+  problems: [],             // [{problem_id, problem_number, problem_text, answer, problem_set}]
+  attempts: {},             // {problem_id: [{attempt_no, is_correct, ...}]}
+  currentProblem: null,     // 현재 선택한 문제 객체
+  currentAttempt: 0,        // 현재 시도 횟수
+  imageDataUrl: null,
+  imageBase64: null,
+  lastGradingResult: null,  // 마지막 채점 결과
+  hintRevealed: 0,          // 0=없음, 1=방향, 2=개념, 3=근접
 };
+
+// 학생번호 → 문제세트 매핑
+const STUDENT_SET_MAP = { 1: "P", 2: "P", 3: "Q", 4: "Q" };
 
 // ─── Routing ─────────────────────────────────────────
 function go(screen) {
@@ -29,355 +36,471 @@ function go(screen) {
   const el = document.getElementById("screen-" + screen);
   if (el) el.classList.add("active");
 
-  const showChrome = (screen === "home");
-  document.getElementById("fab-wrap").style.display  = showChrome ? "" : "none";
-  document.getElementById("tab-bar").style.display   = showChrome ? "" : "none";
+  if (screen === "home") loadProblems();
 }
 
-// ─── Home ────────────────────────────────────────────
-function initHome() {
-  const d = new Date();
-  document.getElementById("home-date").textContent =
-    d.toLocaleDateString("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit", weekday:"short" });
+// ─── Login ───────────────────────────────────────────
+async function selectStudent(code) {
+  S.studentCode = code;
+  S.problemSet = STUDENT_SET_MAP[code];
+
+  // 버튼 피드백
+  document.querySelectorAll(".student-btn").forEach(b => b.classList.remove("selected"));
+  event.currentTarget.classList.add("selected");
+
+  // DB에서 학생 찾거나 생성
+  if (sb) {
+    try {
+      const studentName = `학생${code}`;
+      const { data: existing } = await sb
+        .from("student")
+        .select("student_id")
+        .eq("student_code", code)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.student_id) {
+        S.studentId = existing.student_id;
+      } else {
+        const { data } = await sb
+          .from("student")
+          .insert({ name: studentName, student_code: code, grade: "고등", srl_level: 5, srl_settings: {} })
+          .select("student_id")
+          .single();
+        S.studentId = data.student_id;
+      }
+    } catch (e) {
+      console.warn("DB student error", e);
+    }
+  }
+
+  document.getElementById("home-title").textContent = `${S.problemSet}세트 문제`;
+  document.getElementById("home-badge").textContent = `학생 ${code}`;
+
+  go("home");
 }
 
-// ─── Camera / Upload ─────────────────────────────────
-function openCamera(mode) {
-  S.mode = mode || "problem";
+function logout() {
+  S.studentCode = null;
+  S.studentId = null;
+  S.problems = [];
+  S.attempts = {};
+  go("login");
+}
+
+// ─── Problem List ────────────────────────────────────
+async function loadProblems() {
+  const list = document.getElementById("problem-list");
+  list.innerHTML = '<div class="center-msg"><div class="spinner"></div></div>';
+
+  try {
+    // Supabase에서 문제 세트 로드
+    const { data: problems, error } = await sb
+      .from("field_problem")
+      .select("*")
+      .eq("problem_set", S.problemSet)
+      .order("problem_order", { ascending: true });
+
+    if (error) throw error;
+    S.problems = problems || [];
+
+    // 이 학생의 시도 기록 로드
+    if (S.studentId) {
+      const { data: attempts } = await sb
+        .from("field_attempt")
+        .select("*")
+        .eq("student_id", S.studentId)
+        .order("attempt_no", { ascending: true });
+
+      S.attempts = {};
+      (attempts || []).forEach(a => {
+        if (!S.attempts[a.problem_id]) S.attempts[a.problem_id] = [];
+        S.attempts[a.problem_id].push(a);
+      });
+    }
+
+    renderProblemList();
+  } catch (e) {
+    console.error("문제 로드 실패:", e);
+    list.innerHTML = `<div class="center-msg"><div class="error-text">문제를 불러올 수 없습니다.<br>${e.message}</div></div>`;
+  }
+}
+
+function renderProblemList() {
+  const list = document.getElementById("problem-list");
+  if (!S.problems.length) {
+    list.innerHTML = '<div class="center-msg"><div class="muted">배정된 문제가 없습니다.</div></div>';
+    return;
+  }
+
+  let solved = 0;
+  let html = "";
+
+  S.problems.forEach((p, i) => {
+    const attempts = S.attempts[p.problem_id] || [];
+    const lastAttempt = attempts[attempts.length - 1];
+    const isCorrect = lastAttempt?.is_correct === true;
+    const attemptCount = attempts.length;
+
+    if (isCorrect) solved++;
+
+    let statusClass = "pending";
+    let statusText = "미풀이";
+    let statusIcon = "";
+
+    if (isCorrect) {
+      statusClass = "correct";
+      statusText = "정답";
+      statusIcon = "✓";
+    } else if (attemptCount > 0) {
+      statusClass = "retry";
+      statusText = `${attemptCount}회 시도`;
+      statusIcon = "↻";
+    }
+
+    html += `
+      <div class="problem-card-item ${statusClass}" onclick="openProblem(${i})">
+        <div class="problem-card-left">
+          <div class="problem-card-num">${i + 1}</div>
+          <div class="problem-card-info">
+            <div class="problem-card-title">문제 ${p.problem_number || (i + 1)}</div>
+            <div class="problem-card-sub">${statusText}${attemptCount > 0 ? ` · ${attemptCount}회` : ""}</div>
+          </div>
+        </div>
+        <div class="problem-card-status ${statusClass}">
+          ${statusIcon ? `<span>${statusIcon}</span>` : '<span class="arrow">›</span>'}
+        </div>
+      </div>`;
+  });
+
+  list.innerHTML = html;
+
+  // 진행률 업데이트
+  const total = S.problems.length;
+  document.getElementById("progress-text").textContent = `${solved}/${total}`;
+  document.getElementById("progress-fill").style.width = total > 0 ? `${(solved / total) * 100}%` : "0%";
+}
+
+// ─── Problem Detail ──────────────────────────────────
+function openProblem(idx) {
+  const p = S.problems[idx];
+  if (!p) return;
+
+  S.currentProblem = p;
+  const attempts = S.attempts[p.problem_id] || [];
+  S.currentAttempt = attempts.length;
   S.imageDataUrl = null;
   S.imageBase64 = null;
-  document.getElementById("camera-title").textContent = S.mode === "solution" ? "풀이 촬영" : "문제 촬영";
-  document.getElementById("upload-badge").textContent  = S.mode === "solution" ? "풀이" : "문제";
-  document.getElementById("upload-badge").className    = S.mode === "solution" ? "badge solution" : "badge";
-  document.getElementById("upload-preview").style.display = "none";
-  document.getElementById("file-input").value = "";
-  go("camera");
+  S.hintRevealed = 0;
+  S.lastGradingResult = null;
+
+  document.getElementById("problem-nav-title").textContent = `문제 ${p.problem_number || (idx + 1)}`;
+  document.getElementById("problem-number").textContent = `문제 ${p.problem_number || (idx + 1)}`;
+  document.getElementById("problem-text").innerHTML = esc(p.problem_text);
+
+  // 업로드 영역 초기화
+  document.getElementById("solution-preview").style.display = "none";
+  document.getElementById("solution-upload-area").style.display = "";
+  document.getElementById("solution-file-input").value = "";
+
+  go("problem");
+
+  // KaTeX 렌더링
+  renderAllMath(document.getElementById("problem-display"));
 }
 
-document.getElementById("upload-area").addEventListener("click", () => {
-  document.getElementById("file-input").click();
+// ─── Solution Photo Upload ───────────────────────────
+document.getElementById("solution-upload-area").addEventListener("click", () => {
+  document.getElementById("solution-file-input").click();
 });
 
-document.getElementById("file-input").addEventListener("change", (e) => {
+document.getElementById("solution-file-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
+
   const reader = new FileReader();
   reader.onload = (ev) => {
     S.imageDataUrl = ev.target.result;
     S.imageBase64 = ev.target.result.split(",")[1];
-    document.getElementById("preview-img-upload").src = S.imageDataUrl;
-    document.getElementById("upload-preview").style.display = "";
-    document.getElementById("upload-area").style.display = "none";
+    document.getElementById("solution-preview-img").src = S.imageDataUrl;
+    document.getElementById("solution-preview").style.display = "";
+    document.getElementById("solution-upload-area").style.display = "none";
   };
   reader.readAsDataURL(file);
 });
 
-// ─── Crop (Canvas) ───────────────────────────────────
-let cropImg = null;
-let cropBox = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
-let cropDrag = null;
-const cropCanvas = document.getElementById("crop-canvas");
-const cropCtx = cropCanvas.getContext("2d");
-
-function openCrop() {
-  if (!S.imageDataUrl) return;
-  cropBox = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
-  cropImg = new Image();
-  cropImg.onload = () => {
-    const maxW = Math.min(window.innerWidth - 40, 600);
-    const scale = maxW / cropImg.width;
-    cropCanvas.width = Math.round(cropImg.width * scale);
-    cropCanvas.height = Math.round(cropImg.height * scale);
-    drawCrop();
-    go("crop");
-  };
-  cropImg.src = S.imageDataUrl;
+function retakePhoto() {
+  S.imageDataUrl = null;
+  S.imageBase64 = null;
+  document.getElementById("solution-preview").style.display = "none";
+  document.getElementById("solution-upload-area").style.display = "";
+  document.getElementById("solution-file-input").value = "";
 }
 
-function drawCrop() {
-  if (!cropImg) return;
-  const cw = cropCanvas.width, ch = cropCanvas.height;
-  cropCtx.clearRect(0, 0, cw, ch);
-  cropCtx.drawImage(cropImg, 0, 0, cw, ch);
-  // dim outside
-  cropCtx.fillStyle = "rgba(0,0,0,0.5)";
-  const bx = cropBox.x * cw, by = cropBox.y * ch, bw = cropBox.w * cw, bh = cropBox.h * ch;
-  cropCtx.fillRect(0, 0, cw, by);
-  cropCtx.fillRect(0, by + bh, cw, ch - by - bh);
-  cropCtx.fillRect(0, by, bx, bh);
-  cropCtx.fillRect(bx + bw, by, cw - bx - bw, bh);
-  // frame
-  cropCtx.strokeStyle = "#fff";
-  cropCtx.lineWidth = 2;
-  cropCtx.strokeRect(bx, by, bw, bh);
-  // grid
-  cropCtx.strokeStyle = "rgba(255,255,255,0.25)";
-  cropCtx.lineWidth = 0.5;
-  for (let i = 1; i < 3; i++) {
-    cropCtx.beginPath(); cropCtx.moveTo(bx, by + bh * i / 3); cropCtx.lineTo(bx + bw, by + bh * i / 3); cropCtx.stroke();
-    cropCtx.beginPath(); cropCtx.moveTo(bx + bw * i / 3, by); cropCtx.lineTo(bx + bw * i / 3, by + bh); cropCtx.stroke();
-  }
-}
+// ─── Submit Solution ─────────────────────────────────
+async function submitSolution() {
+  if (!S.imageBase64 || !S.currentProblem) return;
 
-function cropPreset(type) {
-  if (type === "top")    cropBox = { x: 0.02, y: 0.02, w: 0.96, h: 0.48 };
-  if (type === "bottom") cropBox = { x: 0.02, y: 0.50, w: 0.96, h: 0.48 };
-  if (type === "center") cropBox = { x: 0.12, y: 0.15, w: 0.76, h: 0.70 };
-  drawCrop();
-}
-function resetCrop() { cropBox = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 }; drawCrop(); }
-
-// crop touch/mouse drag
-function getCropPos(e) {
-  const rect = cropCanvas.getBoundingClientRect();
-  const t = e.touches ? e.touches[0] : e;
-  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
-}
-cropCanvas.addEventListener("pointerdown", (e) => {
-  const p = getCropPos(e);
-  const cw = cropCanvas.width, ch = cropCanvas.height;
-  const bx = cropBox.x*cw, by = cropBox.y*ch, bw = cropBox.w*cw, bh = cropBox.h*ch;
-  const H = 20;
-  let type = "";
-  const nearL = Math.abs(p.x-bx)<H, nearR = Math.abs(p.x-bx-bw)<H;
-  const nearT = Math.abs(p.y-by)<H, nearB = Math.abs(p.y-by-bh)<H;
-  if (nearT&&nearL) type="tl"; else if(nearT&&nearR) type="tr";
-  else if(nearB&&nearL) type="bl"; else if(nearB&&nearR) type="br";
-  else if(nearT) type="t"; else if(nearB) type="b";
-  else if(nearL) type="l"; else if(nearR) type="r";
-  else if(p.x>bx&&p.x<bx+bw&&p.y>by&&p.y<by+bh) type="move";
-  if (!type) return;
-  cropDrag = { type, startX: p.x, startY: p.y, startBox: {...cropBox} };
-  cropCanvas.setPointerCapture(e.pointerId);
-});
-cropCanvas.addEventListener("pointermove", (e) => {
-  if (!cropDrag) return;
-  const p = getCropPos(e);
-  const cw = cropCanvas.width, ch = cropCanvas.height;
-  const dx = (p.x - cropDrag.startX)/cw, dy = (p.y - cropDrag.startY)/ch;
-  let {x,y,w,h} = cropDrag.startBox;
-  const MIN = 0.08;
-  const t = cropDrag.type;
-  if (t==="move") { x = clamp(x+dx,0,1-w); y = clamp(y+dy,0,1-h); }
-  else {
-    if (t.includes("t")) { const ny = clamp(y+dy,0,y+h-MIN); h -= ny-y; y = ny; }
-    if (t.includes("b")) h = clamp(h+dy,MIN,1-y);
-    if (t.includes("l")) { const nx = clamp(x+dx,0,x+w-MIN); w -= nx-x; x = nx; }
-    if (t.includes("r")) w = clamp(w+dx,MIN,1-x);
-  }
-  cropBox = {x,y,w,h};
-  drawCrop();
-});
-cropCanvas.addEventListener("pointerup", () => { cropDrag = null; });
-
-function applyCrop() {
-  if (!cropImg) { go("camera"); return; }
-  const offscreen = document.createElement("canvas");
-  const sx = Math.round(cropBox.x * cropImg.width);
-  const sy = Math.round(cropBox.y * cropImg.height);
-  const sw = Math.round(cropBox.w * cropImg.width);
-  const sh = Math.round(cropBox.h * cropImg.height);
-  offscreen.width = sw; offscreen.height = sh;
-  offscreen.getContext("2d").drawImage(cropImg, sx, sy, sw, sh, 0, 0, sw, sh);
-  S.imageDataUrl = offscreen.toDataURL("image/jpeg", 0.85);
-  S.imageBase64 = S.imageDataUrl.split(",")[1];
-  document.getElementById("preview-img-upload").src = S.imageDataUrl;
-  go("camera");
-}
-
-function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-// ─── OCR ─────────────────────────────────────────────
-async function runOCR() {
-  if (!S.imageBase64) return;
-  go("preview");
-  document.getElementById("preview-title").textContent = S.mode === "solution" ? "풀이 확인" : "문제 확인";
-  show("preview-processing"); hide("preview-failed"); hide("preview-result");
+  go("processing");
+  updateProcStep("ocr", "active");
+  updateProcStep("grade", "");
+  updateProcStep("hint", "");
 
   try {
-    const resp = await fetch(API + "/ocr", {
+    // 1) OCR
+    const ocrResp = await fetch(API + "/ocr", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: S.imageBase64, mime_type: "image/jpeg", mode: S.mode }),
+      body: JSON.stringify({ image: S.imageBase64, mime_type: "image/jpeg", mode: "solution" }),
     });
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || "OCR 실패");
+    const ocrData = await ocrResp.json();
+    if (!ocrData.success) throw new Error(ocrData.error || "OCR 실패");
 
-    hide("preview-processing");
-    show("preview-result");
+    const steps = ocrData.steps || (ocrData.gpt4o_result || {}).steps || [{ index: 1, text: ocrData.final_text }];
 
-    if (S.mode === "solution") {
-      const steps = data.steps || (data.gpt4o_result || {}).steps || [{ index: 1, text: data.final_text }];
-      S.solutionSteps = steps;
-      hide("problem-result"); show("solution-result");
-      renderStepEditor(steps);
-      saveSolutionToDB(steps);
-    } else {
-      const text = data.final_text || (data.gpt4o_result || {}).ocr_text || "";
-      const latex = (data.gpt4o_result || {}).latex || "";
-      S.problemText = text;
-      S.problemLatex = latex;
-      show("problem-result"); hide("solution-result");
-      document.getElementById("problem-text-input").value = text;
-      renderMath("problem-math-preview", text);
-      saveProblemToDB(text, latex);
-    }
-  } catch (e) {
-    hide("preview-processing");
-    show("preview-failed");
-    document.getElementById("preview-error").textContent = e.message;
-  }
-}
+    updateProcStep("ocr", "done");
+    updateProcStep("grade", "active");
 
-// problem text live preview
-document.getElementById("problem-text-input").addEventListener("input", (e) => {
-  S.problemText = e.target.value;
-  renderMath("problem-math-preview", e.target.value);
-});
-
-// ─── Step Editor ─────────────────────────────────────
-function renderStepEditor(steps) {
-  const wrap = document.getElementById("solution-steps-editor");
-  wrap.innerHTML = "";
-  steps.forEach((step, i) => {
-    const div = document.createElement("div");
-    div.className = "step-editor-row";
-    div.innerHTML = `<div class="step-label">Step ${i+1}</div><input class="step-input" value="${esc(step.text)}" data-idx="${i}">`;
-    div.querySelector("input").addEventListener("input", (e) => { S.solutionSteps[i].text = e.target.value; });
-    wrap.appendChild(div);
-  });
-}
-function addStepInput() {
-  S.solutionSteps.push({ index: S.solutionSteps.length + 1, text: "" });
-  renderStepEditor(S.solutionSteps);
-}
-
-function startSolutionCapture() {
-  openCamera("solution");
-}
-
-// ─── Grading ─────────────────────────────────────────
-async function runGrading() {
-  go("grading");
-  show("grading-loading"); hide("grading-result");
-
-  const steps = S.solutionSteps.filter(s => s.text.trim());
-  if (!steps.length) {
-    hide("grading-loading"); show("grading-result");
-    document.getElementById("grading-result").innerHTML = '<div class="center-msg"><h2>채점 실패</h2><div class="muted">풀이 단계가 없습니다.</div></div>';
-    return;
-  }
-
-  try {
-    const resp = await fetch(API + "/grade", {
+    // 2) 채점
+    const gradeResp = await fetch(API + "/grade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        problem_text: S.problemText,
-        problem_latex: S.problemLatex || S.problemText,
+        problem_text: S.currentProblem.problem_text,
+        problem_latex: S.currentProblem.problem_text,
         solution_steps: steps.map(s => ({ index: s.index, text: s.text })),
+        correct_answer: S.currentProblem.answer,
       }),
     });
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || "채점 실패");
+    const gradeData = await gradeResp.json();
+    if (!gradeData.success) throw new Error(gradeData.error || "채점 실패");
 
-    hide("grading-loading"); show("grading-result");
-    renderGrading(data);
+    updateProcStep("grade", "done");
+    updateProcStep("hint", "done");
+
+    S.lastGradingResult = gradeData;
+    S.lastGradingResult._ocrSteps = steps;
+    S.currentAttempt++;
+
+    // 3) DB 저장
+    await saveAttempt(gradeData, steps);
+
+    // 4) 결과 화면
+    renderResult(gradeData);
+    go("result");
+
   } catch (e) {
-    hide("grading-loading"); show("grading-result");
-    document.getElementById("grading-result").innerHTML =
-      `<div class="center-msg"><h2>채점 실패</h2><div class="error-text">${esc(e.message)}</div><button class="btn-primary" onclick="runGrading()">다시 시도</button></div>`;
+    console.error("제출 실패:", e);
+    go("problem");
+    alert("제출 중 오류가 발생했습니다: " + e.message);
   }
 }
 
-const ERROR_LABELS = {
-  calculation_error: "계산 실수", wrong_concept: "개념 적용 오류",
-  concept_missing: "개념 누락", approach_failure: "접근 방식 오류",
-};
-const STATUS_LABELS = { ok: "맞음", wrong: "오답", depends: "이전 오류 영향" };
-const STATUS_COLORS = { ok: "var(--ok)", wrong: "var(--accent)", depends: "var(--ink3)" };
+function updateProcStep(step, state) {
+  const el = document.getElementById("proc-" + step);
+  if (!el) return;
+  const dot = el.querySelector(".proc-dot");
+  dot.className = "proc-dot";
+  if (state === "active") dot.classList.add("active");
+  if (state === "done") dot.classList.add("done");
+}
 
-function renderGrading(r) {
+// ─── Save Attempt to DB ─────────────────────────────
+async function saveAttempt(gradeData, ocrSteps) {
+  if (!sb || !S.studentId || !S.currentProblem) return;
+
+  try {
+    await sb.from("field_attempt").insert({
+      student_id: S.studentId,
+      problem_id: S.currentProblem.problem_id,
+      attempt_no: S.currentAttempt,
+      ocr_steps: ocrSteps,
+      is_correct: !!gradeData.is_correct,
+      error_step_index: gradeData.error_step_index || null,
+      error_category: gradeData.error_category || null,
+      error_detail: gradeData.error_detail || "",
+      grading_json: gradeData,
+      image_base64: S.imageBase64,
+    });
+
+    // attempts 캐시 업데이트
+    const pid = S.currentProblem.problem_id;
+    if (!S.attempts[pid]) S.attempts[pid] = [];
+    S.attempts[pid].push({
+      attempt_no: S.currentAttempt,
+      is_correct: !!gradeData.is_correct,
+    });
+  } catch (e) {
+    console.warn("DB attempt save error:", e);
+  }
+}
+
+// ─── Render Result ───────────────────────────────────
+function renderResult(r) {
   const isCorrect = !!r.is_correct;
-  let html = `<div class="banner ${isCorrect ? 'correct' : 'wrong'}">
-    <div class="banner-title">${isCorrect ? '정답입니다' : `Step ${r.error_step_index ?? '-'}에서 확인이 필요합니다`}</div>
-    <div class="banner-text">${isCorrect ? '모든 풀이 단계가 문제 조건과 잘 맞습니다.' : (ERROR_LABELS[r.error_category] || r.error_category || '')}</div>
-    ${r.ai_explanation ? `<div class="banner-text" style="margin-top:6px">${esc(r.ai_explanation)}</div>` : ''}
-    <div class="confidence">신뢰도 ${Math.round((r.confidence||0)*100)}%</div>
+  let html = "";
+
+  // 배너
+  html += `<div class="banner ${isCorrect ? "correct" : "wrong"}">
+    <div class="banner-icon">${isCorrect ? "🎉" : "🔍"}</div>
+    <div class="banner-title">${isCorrect ? "정답입니다!" : "다시 확인해보세요"}</div>
+    <div class="banner-text">${isCorrect
+      ? "잘 풀었습니다! 모든 풀이 단계가 올바릅니다."
+      : (r.ai_explanation || "풀이에서 확인이 필요한 부분이 있습니다.")}</div>
+    <div class="attempt-info">시도 ${S.currentAttempt}회</div>
   </div>`;
 
+  // 단계별 판정
+  if (r.steps && r.steps.length > 0) {
+    html += `<div class="card"><div class="card-title">단계별 판정</div>`;
+    r.steps.forEach(step => {
+      const color = step.status === "ok" ? "var(--ok)" : step.status === "wrong" ? "var(--accent)" : "var(--ink3)";
+      const label = step.status === "ok" ? "맞음" : step.status === "wrong" ? "오답" : "영향받음";
+      html += `<div class="step-row">
+        <div class="status-dot" style="background:${color}"></div>
+        <div style="flex:1">
+          <div class="step-status" style="color:${color}">Step ${step.index} · ${label}</div>
+          <div class="math-render">${esc(step.text)}</div>
+          ${step.explanation ? `<div class="step-explanation">${esc(step.explanation)}</div>` : ""}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // 힌트 (오답일 때만)
   if (!isCorrect) {
-    const hints = [r.hint_direction || "", r.hint_concept || "", r.hint_near_answer || ""];
-    html += `<div class="card">
-      <div class="card-title">힌트 단계</div>
+    const hints = [
+      r.hint_direction || "힌트가 없습니다.",
+      r.hint_concept || "힌트가 없습니다.",
+      r.hint_near_answer || "힌트가 없습니다.",
+    ];
+    window._hints = hints;
+
+    html += `<div class="card" id="hint-card">
+      <div class="card-title">힌트</div>
       <div class="hint-tabs">
-        <button class="hint-tab active" onclick="switchHint(0,this)">방향</button>
-        <button class="hint-tab" onclick="switchHint(1,this)">개념</button>
-        <button class="hint-tab" onclick="switchHint(2,this)">근접</button>
+        <button class="hint-tab active" id="hint-tab-0" onclick="revealHint(0)">1단계<br><small>방향</small></button>
+        <button class="hint-tab locked" id="hint-tab-1" onclick="revealHint(1)">2단계<br><small>개념</small></button>
+        <button class="hint-tab locked" id="hint-tab-2" onclick="revealHint(2)">3단계<br><small>근접</small></button>
       </div>
       <div class="hint-body" id="hint-body">${esc(hints[0])}</div>
     </div>`;
-    window._hints = hints;
+
+    // 재시도 + 해설보기 버튼
+    html += `<div class="btn-row">
+      <button class="btn-secondary" onclick="viewSolutionFromResult()">해설 보기</button>
+      <button class="btn-primary" onclick="retryProblem()">다시 풀기</button>
+    </div>`;
+  } else {
+    // 정답이면 다음 문제 또는 목록
+    html += `<div class="btn-row">
+      <button class="btn-secondary" onclick="viewSolutionFromResult()">해설 보기</button>
+      <button class="btn-primary" onclick="go('home')">문제 목록</button>
+    </div>`;
   }
 
-  html += `<div class="card"><div class="card-title">단계별 판정</div>`;
-  (r.steps || []).forEach(step => {
-    const color = STATUS_COLORS[step.status] || "var(--ink3)";
-    html += `<div class="step-row">
-      <div class="status-dot" style="background:${color}"></div>
-      <div style="flex:1">
-        <div class="step-status" style="color:${color}">Step ${step.index} · ${STATUS_LABELS[step.status]||step.status}</div>
-        <div class="math-render">${esc(step.text)}</div>
-        ${step.explanation ? `<div class="step-explanation">${esc(step.explanation)}</div>` : ''}
-      </div>
-    </div>`;
-  });
-  html += `</div>`;
+  document.getElementById("result-content").innerHTML = html;
+  renderAllMath(document.getElementById("result-content"));
 
-  html += `<div class="btn-row"><button class="btn-primary" onclick="goHome()">홈으로</button></div>`;
-
-  document.getElementById("grading-result").innerHTML = html;
-  renderAllMath(document.getElementById("grading-result"));
+  // 힌트 첫 단계 자동 공개 + 로깅
+  S.hintRevealed = 1;
+  logHintEvent(1);
 }
 
-function switchHint(idx, btn) {
+// ─── Hint System ─────────────────────────────────────
+function revealHint(idx) {
+  if (idx > S.hintRevealed) {
+    // 순서대로만 열 수 있음
+    if (idx !== S.hintRevealed) return;
+    S.hintRevealed = idx + 1;
+
+    // 탭 잠금 해제
+    const tab = document.getElementById(`hint-tab-${idx}`);
+    if (tab) tab.classList.remove("locked");
+
+    // 로깅
+    logHintEvent(idx + 1);
+  }
+
+  // 모든 탭 비활성화 후 현재 활성화
   document.querySelectorAll(".hint-tab").forEach(t => t.classList.remove("active"));
-  btn.classList.add("active");
-  document.getElementById("hint-body").textContent = window._hints[idx] || "힌트가 없습니다.";
+  const activeTab = document.getElementById(`hint-tab-${idx}`);
+  if (activeTab && !activeTab.classList.contains("locked")) {
+    activeTab.classList.add("active");
+  }
+
+  // 힌트 내용 표시
+  const body = document.getElementById("hint-body");
+  if (body && window._hints) {
+    if (idx < S.hintRevealed) {
+      body.textContent = window._hints[idx];
+    } else {
+      body.innerHTML = '<span class="muted">이전 단계의 힌트를 먼저 확인하세요</span>';
+    }
+  }
 }
 
-// ─── Solution ────────────────────────────────────────
-async function viewSolution() {
+async function logHintEvent(level) {
+  if (!sb || !S.studentId || !S.currentProblem) return;
+  try {
+    await sb.from("field_hint_log").insert({
+      student_id: S.studentId,
+      problem_id: S.currentProblem.problem_id,
+      attempt_no: S.currentAttempt,
+      hint_level: level,
+    });
+  } catch (e) {
+    console.warn("Hint log error:", e);
+  }
+}
+
+// ─── Retry ───────────────────────────────────────────
+function retryProblem() {
+  if (!S.currentProblem) { go("home"); return; }
+  // 문제 상세로 돌아가기 (사진 초기화)
+  const idx = S.problems.findIndex(p => p.problem_id === S.currentProblem.problem_id);
+  if (idx >= 0) openProblem(idx);
+  else go("home");
+}
+
+// ─── Solution View ───────────────────────────────────
+async function viewSolutionFromResult() {
   go("solution");
-  show("solution-loading"); hide("solution-content");
+  show("solution-loading");
+  hide("solution-content");
 
   try {
     const resp = await fetch(API + "/solution", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        problem_text: S.problemText,
-        problem_latex: S.problemLatex || S.problemText,
+        problem_text: S.currentProblem.problem_text,
+        problem_latex: S.currentProblem.problem_text,
+        correct_answer: S.currentProblem.answer,
       }),
     });
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || "해설 생성 실패");
 
-    hide("solution-loading"); show("solution-content");
+    hide("solution-loading");
+    show("solution-content");
     renderSolution(data);
   } catch (e) {
-    hide("solution-loading"); show("solution-content");
+    hide("solution-loading");
+    show("solution-content");
     document.getElementById("solution-content").innerHTML =
-      `<div class="center-msg"><h2>해설 생성 실패</h2><div class="error-text">${esc(e.message)}</div><button class="btn-primary" onclick="viewSolution()">다시 시도</button></div>`;
+      `<div class="center-msg"><h2>해설 생성 실패</h2><div class="error-text">${esc(e.message)}</div></div>`;
   }
 }
 
 function renderSolution(data) {
-  let html = `<div class="problem-card"><div class="label">PROBLEM</div><div class="math-render">${esc(S.problemText)}</div></div>`;
+  let html = `<div class="problem-card-display"><div class="label">문제</div><div class="math-render">${esc(S.currentProblem.problem_text)}</div></div>`;
+
   html += `<div class="meta-row">`;
   if (data.method_type) html += `<div class="chip">${esc(data.method_type)}</div>`;
-  if (data.difficulty)  html += `<div class="chip">난이도 ${esc(data.difficulty)}</div>`;
-  if (data.answer)      html += `<div class="chip accent">정답 ${esc(data.answer)}</div>`;
+  if (data.difficulty) html += `<div class="chip">난이도 ${esc(data.difficulty)}</div>`;
+  if (data.answer) html += `<div class="chip accent">정답 ${esc(String(data.answer))}</div>`;
   html += `</div>`;
 
   html += `<div class="card"><div class="card-title">단계별 해설</div>`;
@@ -385,84 +508,33 @@ function renderSolution(data) {
     html += `<div class="sol-step">
       <div class="sol-step-title">Step ${step.step}. ${esc(step.title)}</div>
       <div class="math-render">${esc(step.content)}</div>
-      ${step.formula ? `<div class="formula-box math-render">${esc(step.formula)}</div>` : ''}
+      ${step.formula ? `<div class="formula-box math-render">${esc(step.formula)}</div>` : ""}
     </div>`;
   });
   html += `</div>`;
+
+  html += `<div class="btn-row"><button class="btn-primary" onclick="go('home')">문제 목록</button></div>`;
 
   document.getElementById("solution-content").innerHTML = html;
   renderAllMath(document.getElementById("solution-content"));
 }
 
 // ─── KaTeX rendering ─────────────────────────────────
-function renderMath(elementId, text) {
-  const el = document.getElementById(elementId);
-  el.textContent = text;
-  try {
-    renderMathInElement(el, {
-      delimiters: [
-        { left: "$$", right: "$$", display: true },
-        { left: "$", right: "$", display: false },
-      ],
-      throwOnError: false, strict: false,
-    });
-  } catch (e) { /* fallback: plain text */ }
-}
-
 function renderAllMath(container) {
+  if (!container) return;
   try {
     renderMathInElement(container, {
       delimiters: [
         { left: "$$", right: "$$", display: true },
         { left: "$", right: "$", display: false },
       ],
-      throwOnError: false, strict: false,
+      throwOnError: false,
+      strict: false,
     });
   } catch (e) { /* ignore */ }
 }
 
-// ─── Supabase DB ─────────────────────────────────────
-async function ensureStudent() {
-  if (S.studentId) return S.studentId;
-  if (!sb) return null;
-  try {
-    const { data: existing } = await sb.from("student").select("student_id").eq("name", "테스트").limit(1).maybeSingle();
-    if (existing?.student_id) { S.studentId = existing.student_id; return S.studentId; }
-    const { data } = await sb.from("student").insert({ name: "테스트", grade: "고등", srl_level: 5, srl_settings: {} }).select("student_id").single();
-    S.studentId = data.student_id;
-    return S.studentId;
-  } catch (e) { console.warn("DB student error", e); return null; }
-}
-
-async function saveProblemToDB(text, latex) {
-  const sid = await ensureStudent();
-  if (!sid || !sb) return;
-  try {
-    const code = "UP_" + Date.now().toString(36);
-    await sb.from("student_upload_problem").insert({ student_id: sid, upload_problem_code: code, ocr_text: text, match_status: "new" });
-    S.uploadProblemCode = code;
-  } catch (e) { console.warn("DB problem save error", e); }
-}
-
-async function saveSolutionToDB(steps) {
-  const sid = await ensureStudent();
-  if (!sid || !sb) return;
-  try {
-    await sb.from("handwriting_solution").insert({
-      student_id: sid,
-      upload_problem_code: S.uploadProblemCode || `UP_${Date.now().toString(36)}`,
-      problem_source_type: "upload",
-      ocr_steps: steps.map(s => ({ step: s.index, raw: s.text, latex: s.text })),
-      is_correct: false,
-    });
-  } catch (e) { console.warn("DB solution save error", e); }
-}
-
 // ─── Utilities ───────────────────────────────────────
-function show(id) { document.getElementById(id).style.display = ""; }
-function hide(id) { document.getElementById(id).style.display = "none"; }
+function show(id) { const el = document.getElementById(id); if (el) el.style.display = ""; }
+function hide(id) { const el = document.getElementById(id); if (el) el.style.display = "none"; }
 function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
-function goHome() { S.mode = "problem"; go("home"); }
-
-// ─── Init ────────────────────────────────────────────
-initHome();

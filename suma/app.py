@@ -207,14 +207,17 @@ def grade_endpoint():
         solution_steps = data.get("solution_steps", [])
         problem_latex = data.get("problem_latex", "")
 
+        correct_answer = data.get("correct_answer", "")
         clean_problem = problem_latex or problem_text
         clean_steps = "\n".join([f"Step {s['index']}: {s['text']}" for s in solution_steps])
+
+        answer_info = f"\n[이 문제의 정답]\n{correct_answer}\n" if correct_answer else ""
 
         prompt = f"""당신은 고등학교 1학년 순열·조합 단원의 채점 전문가입니다.
 
 [문제]
 {clean_problem}
-
+{answer_info}
 [학생의 풀이]
 {clean_steps}
 
@@ -330,10 +333,11 @@ def solution_endpoint():
         problem_latex = data.get("problem_latex", "")
         the_problem = problem_latex or problem_text
 
-        # 1) Claude로 정답 계산
-        correct_answer = ""
-        try:
-            ans_msg = claude_client.messages.create(
+        # 1) 정답: 클라이언트에서 받거나 Claude로 계산
+        correct_answer = data.get("correct_answer", "")
+        if not correct_answer:
+            try:
+                ans_msg = claude_client.messages.create(
                 model="claude-opus-4-6", max_tokens=2048, temperature=0.0,
                 system="당신은 고1 순열·조합 문제를 정확히 풀어내는 수학 교사입니다. 합의 법칙·곱의 법칙·순열·조합·계승 등 교과서 교집합 범위의 개념만 사용합니다. 답을 반드시 검산하며, 절대 추측하지 않습니다.",
                 messages=[{"role": "user", "content": f"""다음 수학 문제를 풀어 최종 정답만 정확히 구하세요.
@@ -355,10 +359,10 @@ JSON으로만 응답:
     "difficulty": "하 또는 중 또는 상"
 }}"""}],
             )
-            ans_data = parse_json_loose(ans_msg.content[0].text)
-            correct_answer = str(ans_data.get("answer", "")).strip()
-        except Exception:
-            pass
+                ans_data = parse_json_loose(ans_msg.content[0].text)
+                correct_answer = str(ans_data.get("answer", "")).strip()
+            except Exception:
+                pass
 
         # 2) GPT-4o 풀이 작성
         answer_constraint = f"\n[필수 정답]\n{correct_answer}\n" if correct_answer else ""

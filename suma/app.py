@@ -1,27 +1,23 @@
 """
 suma server — Railway 배포용 (고1 순열·조합 특화)
-OCR: Mathpix + Gemini 2.5 Pro + Claude 판정
+OCR: Gemini 2.5 Flash
 채점: Claude Opus (증거 기반 감점형, Batanero 15유형 오류분류)
-해설: Claude 정답 → GPT-4o 풀이 → Claude 검증
 """
 
 import os, json, base64, re, datetime, traceback
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
-import requests as http_requests
 import anthropic
 import google.generativeai as genai
 
 # ─── 환경변수 ──────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-OPENAI_API_KEY    = os.environ["OPENAI_API_KEY"]
+OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 GEMINI_API_KEY    = os.environ["GEMINI_API_KEY"]
-MATHPIX_APP_ID    = os.environ["MATHPIX_APP_ID"]
-MATHPIX_APP_KEY   = os.environ["MATHPIX_APP_KEY"]
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 genai.configure(api_key=GEMINI_API_KEY)
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -355,23 +351,8 @@ def check_contradictions(result):
 # OCR
 # ═══════════════════════════════════════════════════
 
-def call_mathpix(image_b64, mime_type):
-    resp = http_requests.post(
-        "https://api.mathpix.com/v3/text",
-        headers={"app_id": MATHPIX_APP_ID, "app_key": MATHPIX_APP_KEY, "Content-Type": "application/json"},
-        data=json.dumps({
-            "src": f"data:{mime_type};base64,{image_b64}",
-            "formats": ["text", "latex_styled"],
-            "data_options": {"include_latex": True},
-        }),
-    )
-    if resp.status_code == 200:
-        d = resp.json()
-        return (d.get("latex_styled") or d.get("text", "")).strip()
-    return ""
-
-
 def call_gemini_ocr(image_b64, mime_type, mode="problem"):
+    """Gemini Flash로 OCR 수행 (단일 엔진)"""
     if mode == "solution":
         instruction = (
             "당신은 손글씨 수학 풀이 OCR 시스템입니다. "
@@ -397,32 +378,13 @@ def call_gemini_ocr(image_b64, mime_type, mode="problem"):
             '반드시 JSON으로만 응답: {"ocr_text": "...", "latex": "...", "problem_number": "...", "source": "..."}'
         )
 
-    model = genai.GenerativeModel("gemini-2.5-pro")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     image_part = {"mime_type": mime_type, "data": base64.b64decode(image_b64)}
     response = model.generate_content(
         [instruction, "이 수학 문제/풀이를 정확히 읽어줘.", image_part],
         generation_config={"temperature": 0.0, "response_mime_type": "application/json"},
     )
     return response.text
-
-
-def call_judge_claude(image_b64, mime_type, res_a, res_b):
-    prompt = f"""두 OCR 결과가 다릅니다. 첨부 이미지를 직접 보고 올바르게 다시 읽어주세요.
-수식은 반드시 $...$ 로 감싸고, 한글은 $ 밖에 두세요.
-
-[엔진 A - Mathpix]: {res_a}
-[엔진 B - Gemini]: {res_b}
-
-JSON으로만 응답: {{"final_text": "...", "winner": "a 또는 b 또는 rewrite"}}"""
-
-    msg = claude_client.messages.create(
-        model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
-        messages=[{"role": "user", "content": [
-            {"type": "text", "text": prompt},
-            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": image_b64}},
-        ]}],
-    )
-    return msg.content[0].text
 
 
 # ═══════════════════════════════════════════════════
@@ -444,32 +406,14 @@ def ocr_endpoint():
 
         print(f"\n[OCR] mode={mode}, size={len(image_b64)//1024}KB")
 
-        mathpix_result = call_mathpix(image_b64, mime_type)
         gemini_raw = call_gemini_ocr(image_b64, mime_type, mode)
         gemini_json = parse_json_loose(gemini_raw)
 
-        gemini_text = gemini_json.get("ocr_text", "")
-        is_match = mathpix_result.replace(" ", "") == gemini_text.replace(" ", "")
-        judge_result = None
-
-        if not is_match and mathpix_result and gemini_text and mode == "problem":
-            try:
-                judge_result = parse_json_loose(
-                    call_judge_claude(image_b64, mime_type, mathpix_result, gemini_text)
-                )
-                judged = judge_result.get("final_text", "")
-                final_text = judged if '$' in judged else (gemini_text or mathpix_result)
-            except Exception:
-                final_text = gemini_text or mathpix_result
-        else:
-            final_text = gemini_text or mathpix_result
+        final_text = gemini_json.get("ocr_text", "")
 
         result = {
             "success": True, "mode": mode,
-            "mathpix_result": mathpix_result,
-            "gpt4o_result": gemini_json,
-            "is_match": is_match,
-            "judge_result": judge_result,
+            "ocr_result": gemini_json,
             "final_text": final_text,
         }
         if mode == "solution" and "steps" in gemini_json:

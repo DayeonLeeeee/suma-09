@@ -6,8 +6,8 @@
 // ─── Config ──────────────────────────────────────────
 const API = location.origin + "/api";
 
-const SUPABASE_URL = "https://ptlqoigzcomhdspmcgkb.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bHFvaWd6Y29taGRzcG1jZ2tiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MTQ4ODksImV4cCI6MjA5NjA5MDg4OX0.bq7zxOzmPeU6Q6-Od98zctze5-K-O0go9eellN3st-8";
+const SUPABASE_URL = "https://tfggqqutghkmnlmrrvfo.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRmZ2dxcXV0Z2hrbW5sbXJydmZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3ODY1NTcsImV4cCI6MjEwNzM2MjU1N30.oLtSBEmRKWpGVIE4VOe6WqbNp99dF4HAi2UIHE64dm0";
 
 let sb = null;
 try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch (e) { console.warn("Supabase init skipped", e); }

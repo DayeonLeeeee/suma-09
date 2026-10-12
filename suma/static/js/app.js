@@ -499,7 +499,6 @@ function renderSolution(data) {
 
   html += `<div class="meta-row">`;
   if (data.method_type) html += `<div class="chip">${esc(data.method_type)}</div>`;
-  if (data.difficulty) html += `<div class="chip">난이도 ${esc(data.difficulty)}</div>`;
   if (data.answer) html += `<div class="chip accent">정답 ${esc(String(data.answer))}</div>`;
   html += `</div>`;
 

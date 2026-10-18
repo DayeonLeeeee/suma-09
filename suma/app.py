@@ -4,7 +4,7 @@ OCR: Gemini 2.5 Flash
 채점: Claude Opus (증거 기반 감점형, Batanero 15유형 오류분류)
 """
 
-import os, json, base64, re, datetime, traceback
+import os, json, base64, re, datetime, traceback, uuid
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
@@ -694,8 +694,7 @@ def seed_problems():
                 "answer": p["answer"],
                 "source": "임시",
             }
-            if pid:
-                row["problem_id"] = pid
+            row["problem_id"] = pid if pid else str(uuid.uuid4())
             rows.append(row)
 
         sb.table("field_problem").insert(rows).execute()

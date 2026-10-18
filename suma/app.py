@@ -457,13 +457,9 @@ def grade_endpoint():
             msg = claude_client.messages.create(
                 model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
                 system=GRADING_SYSTEM,
-                messages=[
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": "{"},
-                ],
+                messages=[{"role": "user", "content": prompt + "\n\n[최종 지시] 사고 과정을 출력하지 마세요. 오직 JSON 객체 하나만 출력하세요. 첫 글자가 반드시 '{'이어야 합니다."}],
             )
             last_raw = msg.content[0].text if msg.content else ""
-            last_raw = "{" + last_raw  # prefill의 "{" 복원
             print(f"[Grade] attempt={attempt+1}, stop={msg.stop_reason}, len={len(last_raw)}, first100={last_raw[:100]!r}")
             try:
                 result = parse_json_loose(last_raw)

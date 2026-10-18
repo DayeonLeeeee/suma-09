@@ -679,7 +679,10 @@ def seed_problems():
 
         sb = create_client(sb_url, sb_key)
 
-        inserted = 0
+        # 기존 문제 전부 삭제 후 원본 UUID로 재삽입
+        sb.table("field_problem").delete().neq("problem_id", "00000000-0000-0000-0000-000000000000").execute()
+
+        rows = []
         for p in TEMP_PROBLEMS:
             key = f"{p['set']}-{p['num']}"
             pid = ORIGINAL_PROBLEM_IDS.get(key)
@@ -693,9 +696,10 @@ def seed_problems():
             }
             if pid:
                 row["problem_id"] = pid
-            # upsert: 같은 problem_id 있으면 업데이트, 없으면 삽입
-            sb.table("field_problem").upsert(row, on_conflict="problem_id").execute()
-            inserted += 1
+            rows.append(row)
+
+        sb.table("field_problem").insert(rows).execute()
+        inserted = len(rows)
 
         return jsonify({"success": True, "count": inserted})
     except Exception as e:

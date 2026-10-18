@@ -653,9 +653,23 @@ TEMP_PROBLEMS = [
      "answer": ""},
 ]
 
+# 기존 문제의 원본 UUID 매핑 (복구용)
+ORIGINAL_PROBLEM_IDS = {
+    "P-1": "67e859a5-fbaf-40d1-a4e4-03b81b7d7b03",
+    "P-2": "156a7d06-8b36-43ab-845d-bfbb95da5f7d",
+    "P-3": "05951551-1db7-4247-afc2-fb6d649e1496",
+    "P-4": "a387f861-bcd0-4350-a35c-5ca89adecbd4",
+    "P-5": "56b51931-50ff-4e49-b9e2-c64961e02922",
+    "Q-1": "6f4f567a-a924-4899-a4a2-131748901eb5",
+    "Q-2": "0c5b02d7-ee99-422b-9eb8-9b499250d747",
+    "Q-3": "ea79e7b6-7de7-4360-b350-bb38b8a7286c",
+    "Q-4": "ad56dedb-5ab2-4293-b12c-461c8a4cad03",
+    "Q-5": "ceb9f00d-91e3-42b5-851b-470b3b789d50",
+}
+
 @app.route("/api/seed", methods=["POST"])
 def seed_problems():
-    """임시 문제 시드 — Supabase에 테스트용 문제를 삽입"""
+    """문제 시드 — 원본 UUID 유지하여 upsert"""
     try:
         from supabase import create_client
         sb_url = os.environ.get("SUPABASE_URL", "")
@@ -665,24 +679,58 @@ def seed_problems():
 
         sb = create_client(sb_url, sb_key)
 
-        # 기존 임시 데이터 삭제
-        sb.table("field_problem").delete().eq("source", "임시").execute()
+        inserted = 0
+        for p in TEMP_PROBLEMS:
+            key = f"{p['set']}-{p['num']}"
+            pid = ORIGINAL_PROBLEM_IDS.get(key)
+            row = {
+                "problem_set": p["set"],
+                "problem_number": p["num"],
+                "problem_order": p["order"],
+                "problem_text": p["text"],
+                "answer": p["answer"],
+                "source": "임시",
+            }
+            if pid:
+                row["problem_id"] = pid
+            # upsert: 같은 problem_id 있으면 업데이트, 없으면 삽입
+            sb.table("field_problem").upsert(row, on_conflict="problem_id").execute()
+            inserted += 1
 
-        # 삽입
-        rows = [{
-            "problem_set": p["set"],
-            "problem_number": p["num"],
-            "problem_order": p["order"],
-            "problem_text": p["text"],
-            "answer": p["answer"],
-            "source": "임시",
-        } for p in TEMP_PROBLEMS]
-
-        sb.table("field_problem").insert(rows).execute()
-
-        return jsonify({"success": True, "count": len(rows)})
+        return jsonify({"success": True, "count": inserted})
     except Exception as e:
         print(f"[Seed error] {traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/restore", methods=["POST"])
+def restore_data():
+    """백업 데이터 복구 — attempt, hint_log 재삽입"""
+    try:
+        from supabase import create_client
+        sb_url = os.environ.get("SUPABASE_URL", "")
+        sb_key = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
+        if not sb_url or not sb_key:
+            return jsonify({"success": False, "error": "SUPABASE_URL / SUPABASE_KEY 환경변수 필요"}), 400
+
+        sb = create_client(sb_url, sb_key)
+        data = request.get_json()
+        table = data.get("table")
+        rows = data.get("rows", [])
+
+        if table not in ("field_attempt", "field_hint_log"):
+            return jsonify({"success": False, "error": f"허용되지 않는 테이블: {table}"}), 400
+
+        if not rows:
+            return jsonify({"success": False, "error": "rows가 비어있습니다"}), 400
+
+        # upsert로 중복 방지
+        pk = "attempt_id" if table == "field_attempt" else "hint_log_id"
+        sb.table(table).upsert(rows, on_conflict=pk).execute()
+
+        return jsonify({"success": True, "table": table, "count": len(rows)})
+    except Exception as e:
+        print(f"[Restore error] {traceback.format_exc()}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

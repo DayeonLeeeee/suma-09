@@ -451,12 +451,23 @@ def grade_endpoint():
 
         prompt = build_grading_prompt(clean_problem, clean_steps, correct_answer)
 
-        msg = claude_client.messages.create(
-            model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
-            system=GRADING_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        result = parse_json_loose(msg.content[0].text)
+        # 최대 2회 시도 (JSON 파싱 실패 시 재시도)
+        last_raw = ""
+        for attempt in range(2):
+            msg = claude_client.messages.create(
+                model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
+                system=GRADING_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            last_raw = msg.content[0].text if msg.content else ""
+            print(f"[Grade] attempt={attempt+1}, stop={msg.stop_reason}, len={len(last_raw)}, first100={last_raw[:100]!r}")
+            try:
+                result = parse_json_loose(last_raw)
+                break
+            except (json.JSONDecodeError, Exception) as parse_err:
+                print(f"[Grade] JSON parse fail attempt {attempt+1}: {parse_err}")
+                if attempt == 1:
+                    raise ValueError(f"채점 AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (raw[:200]={last_raw[:200]!r})")
 
         # 증거 검증 + 모순 점검
         result = validate_evidence(result, clean_steps)

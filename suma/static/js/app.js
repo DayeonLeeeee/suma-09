@@ -104,11 +104,12 @@ async function loadProblems() {
   list.innerHTML = '<div class="center-msg"><div class="spinner"></div></div>';
 
   try {
-    // Supabase에서 문제 세트 로드
+    // Supabase에서 기본 + 유사 문제 세트 로드
+    const sets = [S.problemSet, S.problemSet + "2"];  // e.g. ["P", "P2"]
     const { data: problems, error } = await sb
       .from("field_problem")
       .select("*")
-      .eq("problem_set", S.problemSet)
+      .in("problem_set", sets)
       .order("problem_order", { ascending: true });
 
     if (error) throw error;
@@ -146,7 +147,12 @@ function renderProblemList() {
   let solved = 0;
   let html = "";
 
-  S.problems.forEach((p, i) => {
+  // 기본/유사 분리
+  const basicProblems = S.problems.filter(p => p.problem_set === S.problemSet);
+  const similarProblems = S.problems.filter(p => p.problem_set === S.problemSet + "2");
+
+  function renderCard(p, displayNum) {
+    const idx = S.problems.indexOf(p);
     const attempts = S.attempts[p.problem_id] || [];
     const lastAttempt = attempts[attempts.length - 1];
     const isCorrect = lastAttempt?.is_correct === true;
@@ -168,12 +174,12 @@ function renderProblemList() {
       statusIcon = "↻";
     }
 
-    html += `
-      <div class="problem-card-item ${statusClass}" onclick="openProblem(${i})">
+    return `
+      <div class="problem-card-item ${statusClass}" onclick="openProblem(${idx})">
         <div class="problem-card-left">
-          <div class="problem-card-num">${i + 1}</div>
+          <div class="problem-card-num">${displayNum}</div>
           <div class="problem-card-info">
-            <div class="problem-card-title">문제 ${p.problem_number || (i + 1)}</div>
+            <div class="problem-card-title">문제 ${displayNum}</div>
             <div class="problem-card-sub">${statusText}${attemptCount > 0 ? ` · ${attemptCount}회` : ""}</div>
           </div>
         </div>
@@ -181,7 +187,19 @@ function renderProblemList() {
           ${statusIcon ? `<span>${statusIcon}</span>` : '<span class="arrow">›</span>'}
         </div>
       </div>`;
-  });
+  }
+
+  // 기본문제 (1~5)
+  if (basicProblems.length) {
+    html += `<div class="problem-section-label">기본문제</div>`;
+    basicProblems.forEach((p, i) => { html += renderCard(p, i + 1); });
+  }
+
+  // 유사문제 (6~10)
+  if (similarProblems.length) {
+    html += `<div class="problem-section-label" style="margin-top:18px;">유사문제</div>`;
+    similarProblems.forEach((p, i) => { html += renderCard(p, i + 6); });
+  }
 
   list.innerHTML = html;
 
@@ -204,8 +222,11 @@ function openProblem(idx) {
   S.hintRevealed = 0;
   S.lastGradingResult = null;
 
-  document.getElementById("problem-nav-title").textContent = `문제 ${p.problem_number || (idx + 1)}`;
-  document.getElementById("problem-number").textContent = `문제 ${p.problem_number || (idx + 1)}`;
+  // 유사문제면 6~10번, 기본이면 problem_number 그대로
+  const isSimilar = p.problem_set.endsWith("2");
+  const displayNum = isSimilar ? (p.problem_number + 5) : (p.problem_number || (idx + 1));
+  document.getElementById("problem-nav-title").textContent = `문제 ${displayNum}`;
+  document.getElementById("problem-number").textContent = `문제 ${displayNum}`;
   document.getElementById("problem-text").innerHTML = esc(p.problem_text);
 
   // 업로드 영역 초기화

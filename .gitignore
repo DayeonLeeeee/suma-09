@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .env
+
+# 임시 생성 파일
+make_answers.py
+q*_correct.png

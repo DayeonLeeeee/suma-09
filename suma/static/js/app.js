@@ -40,13 +40,23 @@ function go(screen) {
 }
 
 // ─── Login ───────────────────────────────────────────
+function loginWithId() {
+  const input = document.getElementById("login-id-input");
+  const errorEl = document.getElementById("login-error");
+  const code = parseInt(input.value, 10);
+
+  if (!code || code < 1 || code > 4) {
+    errorEl.textContent = "1~4 사이의 번호를 입력해주세요.";
+    input.focus();
+    return;
+  }
+  errorEl.textContent = "";
+  selectStudent(code);
+}
+
 async function selectStudent(code) {
   S.studentCode = code;
   S.problemSet = STUDENT_SET_MAP[code];
-
-  // 버튼 피드백
-  document.querySelectorAll(".student-btn").forEach(b => b.classList.remove("selected"));
-  event.currentTarget.classList.add("selected");
 
   // DB에서 학생 찾거나 생성
   if (sb) {

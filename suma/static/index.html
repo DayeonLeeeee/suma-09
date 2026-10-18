@@ -12,29 +12,17 @@
 </head>
 <body>
 
-<!-- ════════════ LOGIN (학생 선택) ════════════ -->
+<!-- ════════════ LOGIN (숫자 ID 입력) ════════════ -->
 <div id="screen-login" class="screen active">
   <div class="login-wrap">
     <div class="login-logo">수마</div>
     <div class="login-subtitle">AI 수학 풀이 진단 시스템</div>
-    <div class="login-desc">본인의 번호를 선택해주세요</div>
-    <div class="student-grid">
-      <button class="student-btn" onclick="selectStudent(1)">
-        <div class="student-num">1</div>
-        <div class="student-label">학생 1</div>
-      </button>
-      <button class="student-btn" onclick="selectStudent(2)">
-        <div class="student-num">2</div>
-        <div class="student-label">학생 2</div>
-      </button>
-      <button class="student-btn" onclick="selectStudent(3)">
-        <div class="student-num">3</div>
-        <div class="student-label">학생 3</div>
-      </button>
-      <button class="student-btn" onclick="selectStudent(4)">
-        <div class="student-num">4</div>
-        <div class="student-label">학생 4</div>
-      </button>
+    <div class="login-desc">배정받은 번호를 입력해주세요</div>
+    <div class="login-form">
+      <input type="number" id="login-id-input" class="login-input" placeholder="번호 입력" min="1" max="4" inputmode="numeric"
+        onkeydown="if(event.key==='Enter')loginWithId()">
+      <button class="login-btn" onclick="loginWithId()">시작하기</button>
+      <div class="login-error" id="login-error"></div>
     </div>
   </div>
 </div>

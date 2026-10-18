@@ -151,7 +151,7 @@ def build_grading_prompt(problem_text, clean_steps, correct_answer):
 3. 중간 계산을 일부 생략했어도 수학적으로 맞으면 "ok".
 4. OCR로 부호(-)·분수가 깨졌을 수 있으니, 표기 실수는 학생 의도를 고려해 관대하게 보고 실제 수학적 오류만 "wrong".
 5. 학생의 최종 답이 정답과 일치하고 논리에 큰 결함이 없으면 is_correct=true.
-6. 진짜 수학적으로 틀린 최초 단계만 "wrong", 그 이후는 "depends".
+6. "wrong"은 반드시 하나만: 진짜 수학적으로 틀린 최초 단계 딱 하나만 "wrong". 그 이후 단계는 모두 "depends". 절대로 "wrong"을 2개 이상 주지 마세요. 첫 오류만 짚어주고 나머지는 그 영향을 받은 것으로 처리합니다.
 
 [정답 노출 절대 금지 — 최우선 규칙]
 - ai_explanation, explanation, hint_direction, hint_concept 어디에서든 올바른 값·정답·정답에 가까운 수치를 절대로 말하지 마세요.

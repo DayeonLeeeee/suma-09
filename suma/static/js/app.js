@@ -360,10 +360,11 @@ function renderResult(r) {
     <div class="attempt-info">시도 ${S.currentAttempt}회</div>
   </div>`;
 
-  // 단계별 판정
+  // 단계별 판정 — 오답(wrong) 단계에서 멈추고 이후는 표시하지 않음
   if (r.steps && r.steps.length > 0) {
     html += `<div class="card"><div class="card-title">단계별 판정</div>`;
-    r.steps.forEach(step => {
+    for (let i = 0; i < r.steps.length; i++) {
+      const step = r.steps[i];
       const color = step.status === "ok" ? "var(--ok)" : step.status === "wrong" ? "var(--accent)" : "var(--ink3)";
       const label = step.status === "ok" ? "맞음" : step.status === "wrong" ? "오답" : "영향받음";
       html += `<div class="step-row">
@@ -374,7 +375,9 @@ function renderResult(r) {
           ${step.explanation ? `<div class="step-explanation">${esc(step.explanation)}</div>` : ""}
         </div>
       </div>`;
-    });
+      // 오답 단계에서 멈춤 — 이후 단계는 표시하지 않음
+      if (step.status === "wrong") break;
+    }
     html += `</div>`;
   }
 

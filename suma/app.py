@@ -153,6 +153,14 @@ def build_grading_prompt(problem_text, clean_steps, correct_answer):
 5. 학생의 최종 답이 정답과 일치하고 논리에 큰 결함이 없으면 is_correct=true.
 6. 진짜 수학적으로 틀린 최초 단계만 "wrong", 그 이후는 "depends".
 
+[정답 노출 절대 금지 — 최우선 규칙]
+- ai_explanation, explanation, hint_direction, hint_concept 어디에서든 올바른 값·정답·정답에 가까운 수치를 절대로 말하지 마세요.
+- "올바른 값은 20이다", "C(6,3) = 20이므로", "정답은 310이다" 같은 표현은 절대 금지.
+- 틀린 부분이 어디인지, 어떤 종류의 실수인지만 지적하세요.
+- 예시 OK: "이 단계에서 나눗셈이 빠져 있습니다", "순열이 아닌 조합을 적용해야 하는 상황입니다"
+- 예시 NG: "C(6,3) = 6!/(3!×3!) = 720/36 = 20이다", "올바른 계산은 20 × 5 = 100"
+- hint_near_answer(3단계)만 예외: 거의 답까지 보여주되, 최종 답 숫자 자체는 여전히 말하지 마세요.
+
 [증거 기반 채점 — 핵심 원칙]
 - 모든 감점·오류 지적에는 학생 풀이 원문에서 직접 인용한 evidence가 필수.
 - evidence는 학생이 실제로 쓴 문자열을 그대로 인용. 존재하지 않는 내용을 인용하지 마세요.
@@ -202,15 +210,15 @@ hint_near_answer (근접 힌트, 3단계):
     "steps": [
         {{
             "index": 1,
-            "text": "읽기 쉬운 수학 표현",
+            "text": "읽기 쉬운 수학 표현 (학생이 쓴 내용 그대로 옮기기)",
             "status": "ok|wrong|depends",
-            "explanation": "이 단계 설명",
+            "explanation": "이 단계 설명 — 무엇이 잘못되었는지만 지적. 올바른 값·정답·정답에 가까운 수치를 절대 포함하지 마세요.",
             "evidence": "학생 풀이에서 직접 인용한 원문 (ok인 경우 생략 가능)"
         }}
     ],
     "error_category": null 또는 "B01"~"B15" 중 하나,
     "error_detail": "간단한 오류 설명",
-    "ai_explanation": "학생에게 보여줄 설명 (한국어, 친절하게)",
+    "ai_explanation": "학생에게 보여줄 격려/안내 한 줄 — 어디를 다시 살펴보라는 방향만. 올바른 값·공식 결과·정답을 절대 포함하지 마세요.",
     "hint_direction": "방향 힌트",
     "hint_concept": "개념 힌트",
     "hint_near_answer": "근접 힌트",

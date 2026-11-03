@@ -2,59 +2,170 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>수마 — 풀이 진단 시연</title>
-<link rel="stylesheet" href="/css/style.css">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F6F3EC">
+<title>수마 — 풀이 진단</title>
+<link rel="stylesheet" href="/css/style.css?v=20261104">
 </head>
 <body>
 
-<!-- ════════════ 문제 + 풀이 촬영 ════════════ -->
-<div id="screen-problem" class="screen active">
+<!-- ════════════ 홈 ════════════ -->
+<div id="screen-home" class="screen active">
   <div class="nav">
     <div class="nav-logo">수마</div>
     <div class="nav-badge">시연</div>
   </div>
 
-  <div class="card" id="problem-display">
-    <div class="problem-head">
-      <span class="problem-no">30</span>
-      <span class="chip">고1 · 순열과 조합</span>
-    </div>
-    <p class="problem-text">
-      세 문자 <i>a</i>, <i>b</i>, <i>c</i> 중에서 중복을 허락하여 각각 5개 이하씩 모두 7개를 택해
-      다음 조건을 만족시키는 7자리의 문자열을 만들려고 한다.
-    </p>
-    <div class="condition-box">
-      <div>(가) 한 문자가 연달아 3개 이어지고 그 문자는 <i>a</i>뿐이다.</div>
-      <div>(나) 어느 한 문자도 연달아 4개 이상 이어지지 않는다.</div>
-    </div>
-    <p class="problem-text">
-      예를 들어, <i>baaacca</i>, <i>ccbbaaa</i>는 조건을 만족시키는 문자열이고
-      <i>aabbcca</i>, <i>aaabccc</i>, <i>ccbaaaa</i>는 조건을 만족시키지 않는 문자열이다.
-      만들 수 있는 모든 문자열의 개수를 구하시오. <span class="muted">[4점]</span>
-    </p>
+  <div class="home-hero">
+    <div class="eyebrow">AI 풀이 진단</div>
+    <h1>틀린 이유를,<br>처음 틀린 줄부터.</h1>
+    <p>문제와 풀이를 찍으면 처음 틀린 줄과 오답 유형을 짚고, 정답 대신 힌트를 드려요.</p>
   </div>
 
-  <div class="upload-area" id="solution-upload-area" role="button" tabindex="0">
-    <div class="upload-icon">📷</div>
-    <div class="upload-label">풀이를 촬영해주세요</div>
-    <div class="muted">종이에 푼 다음 사진을 찍거나 앨범에서 골라주세요</div>
-  </div>
-  <input type="file" id="solution-file-input" accept="image/*">
+  <button class="shoot-card" id="shoot-problem-btn">
+    <span class="shoot-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/></svg>
+    </span>
+    <span class="shoot-text">
+      <span class="shoot-title">문제 촬영하기</span>
+      <span class="shoot-sub">카메라로 풀고 싶은 문제를 찍어주세요</span>
+    </span>
+    <span class="shoot-arrow" aria-hidden="true">›</span>
+  </button>
+  <button class="link-btn" id="album-problem-btn">앨범에서 문제 사진 고르기</button>
+  <div class="submit-error" id="home-error" role="alert"></div>
 
-  <div id="solution-preview" style="display:none">
+  <div class="how">
+    <div class="how-title">이렇게 진행돼요</div>
+    <div class="how-step"><span class="how-no">1</span><div><b>문제 찍기</b><span>Gemini Flash가 사진 속 글자와 수식을 읽어요</span></div></div>
+    <div class="how-step"><span class="how-no">2</span><div><b>풀이 찍기</b><span>종이에 푼 풀이를 그대로 찍어요</span></div></div>
+    <div class="how-step"><span class="how-no">3</span><div><b>진단 받기</b><span>처음 틀린 줄 · 오답 유형 · 힌트 3단계</span></div></div>
+  </div>
+
+  <p class="footnote">지원 단원 · 고1 순열과 조합<br>올린 사진은 진단에만 쓰이고 저장되지 않습니다.</p>
+</div>
+
+<!-- ════════════ 카메라 ════════════ -->
+<div id="screen-camera" class="screen camera">
+  <video id="cam-video" autoplay playsinline muted></video>
+  <div class="cam-flash" id="cam-flash"></div>
+
+  <div class="cam-top">
+    <button class="cam-round" id="cam-back" aria-label="뒤로가기">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div class="cam-title" id="cam-title">문제를 찍어주세요</div>
+    <button class="cam-round" id="cam-torch" aria-label="플래시" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+    </button>
+    <div class="cam-round-spacer" id="cam-torch-spacer"></div>
+  </div>
+
+  <div class="cam-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="cam-guide" id="cam-guide">문제가 틀 안에 들어오게 맞춰주세요</div>
+
+  <div class="cam-error" id="cam-error" hidden>
+    <b>카메라를 열 수 없어요</b>
+    <span id="cam-error-text">브라우저 설정에서 카메라 권한을 허용하거나, 아래 버튼으로 사진을 찍어주세요.</span>
+    <button class="btn-primary" id="cam-native-btn">사진 찍기 · 고르기</button>
+  </div>
+
+  <div class="cam-bottom">
+    <button class="cam-side" id="cam-album" aria-label="앨범">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
+      <span>앨범</span>
+    </button>
+    <button class="cam-shutter" id="cam-shutter" aria-label="촬영"><span></span></button>
+    <button class="cam-side" id="cam-flip" aria-label="카메라 전환">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><path d="M9.5 12.5a2.8 2.8 0 0 1 5 -1.2M14.5 14a2.8 2.8 0 0 1-5 1.2"/><path d="M14.6 9.6v1.8h-1.8M9.4 16.4v-1.8h1.8"/></svg>
+      <span>전환</span>
+    </button>
+  </div>
+  <input type="file" id="album-input" accept="image/*" hidden>
+  <input type="file" id="native-camera-input" accept="image/*" capture="environment" hidden>
+  <canvas id="cam-canvas" hidden></canvas>
+</div>
+
+<!-- ════════════ 문제 읽는 중 (OCR) ════════════ -->
+<div id="screen-reading" class="screen">
+  <div class="center-msg">
+    <div class="scan-wrap">
+      <img id="reading-img" alt="찍은 문제 사진">
+      <div class="scan-line"></div>
+    </div>
+    <div class="chip gemini">Gemini Flash</div>
+    <h2>문제를 읽고 있어요</h2>
+    <div class="muted">사진 속 글자와 수식을 텍스트로 바꾸는 중입니다</div>
+    <div class="processing-steps">
+      <div class="proc-step" id="read-upload"><span class="proc-dot"></span> 사진 보내기</div>
+      <div class="proc-step" id="read-ocr"><span class="proc-dot"></span> 글자·수식 읽기</div>
+      <div class="proc-step" id="read-tidy"><span class="proc-dot"></span> 문제 정리</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ 읽은 문제 확인 ════════════ -->
+<div id="screen-confirm" class="screen">
+  <div class="nav">
+    <button class="nav-btn" data-back>‹ 처음</button>
+    <div class="nav-title">문제 확인</div>
+    <div class="nav-spacer"></div>
+  </div>
+
+  <div class="ocr-meta">
+    <span class="chip gemini">Gemini Flash로 읽음</span>
+    <span class="chip" id="confirm-time"></span>
+    <span class="chip accent" id="confirm-unit" hidden>고1 · 순열과 조합</span>
+  </div>
+
+  <div class="confirm-photo">
+    <img id="confirm-img" alt="찍은 문제 사진">
+    <span class="badge">찍은 사진</span>
+  </div>
+
+  <div class="card problem-card" id="confirm-problem"></div>
+  <p class="muted center">읽은 내용이 사진과 다르면 다시 찍어주세요.</p>
+
+  <div class="btn-row sticky-actions">
+    <button class="btn-secondary" id="confirm-retake-btn">다시 찍기</button>
+    <button class="btn-primary" id="confirm-ok-btn">이 문제 풀기</button>
+  </div>
+</div>
+
+<!-- ════════════ 풀이 제출 ════════════ -->
+<div id="screen-solve" class="screen">
+  <div class="nav">
+    <button class="nav-btn" data-back>‹ 문제</button>
+    <div class="nav-title">풀이 제출</div>
+    <button class="nav-btn" data-home>새 문제</button>
+  </div>
+
+  <details class="card problem-card fold" id="solve-problem-wrap" open>
+    <summary>문제 보기</summary>
+    <div id="solve-problem"></div>
+  </details>
+
+  <button class="upload-area" id="solution-upload-area">
+    <span class="shoot-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/></svg>
+    </span>
+    <span class="upload-label">풀이 촬영하기</span>
+    <span class="muted">종이에 푼 풀이를 한 장에 담아 찍어주세요</span>
+  </button>
+
+  <div id="solution-preview" hidden>
     <div class="photo-wrap">
-      <img id="solution-preview-img" alt="올린 풀이 사진">
+      <img id="solution-preview-img" alt="찍은 풀이 사진">
       <div class="badge solution">내 풀이</div>
     </div>
     <div class="btn-row">
-      <button class="btn-secondary" id="retake-btn">다시 고르기</button>
+      <button class="btn-secondary" id="retake-btn">다시 찍기</button>
       <button class="btn-primary" id="submit-btn">제출하기</button>
     </div>
   </div>
 
   <div class="submit-error" id="submit-error" role="alert"></div>
-  <p class="footnote">올린 사진은 채점에만 쓰이고 저장되지 않습니다.</p>
+  <p class="footnote">올린 사진은 진단에만 쓰이고 저장되지 않습니다.</p>
 </div>
 
 <!-- ════════════ 채점 중 ════════════ -->
@@ -62,7 +173,7 @@
   <div class="center-msg">
     <div class="spinner-lg"></div>
     <h2>채점하고 있어요</h2>
-    <div class="muted">사진을 읽고 처음 틀린 줄을 찾는 중입니다</div>
+    <div class="muted">풀이를 읽고 처음 틀린 줄을 찾는 중입니다</div>
     <div class="processing-steps">
       <div class="proc-step" id="proc-ocr"><span class="proc-dot"></span> 손글씨 읽기</div>
       <div class="proc-step" id="proc-grade"><span class="proc-dot"></span> 처음 틀린 줄 찾기</div>
@@ -74,9 +185,9 @@
 <!-- ════════════ 채점 결과 + 힌트 ════════════ -->
 <div id="screen-result" class="screen">
   <div class="nav">
-    <button class="nav-btn" id="result-back-btn">문제</button>
+    <button class="nav-btn" data-back>‹ 풀이</button>
     <div class="nav-title">채점 결과</div>
-    <div class="nav-spacer"></div>
+    <button class="nav-btn" data-home>새 문제</button>
   </div>
   <div id="result-content"></div>
 </div>
@@ -84,70 +195,100 @@
 <!-- ════════════ 해설 ════════════ -->
 <div id="screen-solution" class="screen">
   <div class="nav">
-    <button class="nav-btn" id="solution-back-btn">결과</button>
+    <button class="nav-btn" data-back>‹ 결과</button>
     <div class="nav-title">해설</div>
-    <div class="nav-spacer"></div>
+    <button class="nav-btn" data-home>새 문제</button>
   </div>
+  <div id="compare-card"></div>
+  <div id="solution-body"></div>
+  <div class="btn-row">
+    <button class="btn-primary" id="solution-retry-btn">다시 풀어보기</button>
+  </div>
+</div>
 
+<!-- ════════════ 30번 문제 (인식되면 정돈된 형태로 표시) ════════════ -->
+<template id="tpl-demo-problem">
+  <div class="problem-head">
+    <span class="problem-no">30</span>
+    <span class="chip">고1 · 순열과 조합</span>
+  </div>
+  <p class="problem-text">
+    세 문자 <i>a</i>, <i>b</i>, <i>c</i> 중에서 중복을 허락하여 각각 5개 이하씩 모두 7개를 택해
+    다음 조건을 만족시키는 7자리의 문자열을 만들려고 한다.
+  </p>
+  <div class="condition-box">
+    <div>(가) 한 문자가 연달아 3개 이어지고 그 문자는 <i>a</i>뿐이다.</div>
+    <div>(나) 어느 한 문자도 연달아 4개 이상 이어지지 않는다.</div>
+  </div>
+  <p class="problem-text">
+    예를 들어, <i>baaacca</i>, <i>ccbbaaa</i>는 조건을 만족시키는 문자열이고
+    <i>aabbcca</i>, <i>aaabccc</i>, <i>ccbaaaa</i>는 조건을 만족시키지 않는 문자열이다.
+    만들 수 있는 모든 문자열의 개수를 구하시오. <span class="muted">[4점]</span>
+  </p>
+</template>
+
+<!-- ════════════ 30번 해설 (검증된 고정 해설, data-sec = 강조 구간) ════════════ -->
+<template id="tpl-demo-solution">
   <div class="meta-row">
     <div class="chip">경우 나누기</div>
     <div class="chip accent">정답 188</div>
   </div>
 
+  <div class="card sol-case" data-sec="split">
+    <div class="card-title">경우 나누기</div>
+    <p class="sol-lead"><i>aaa</i> 묶음이 놓이는 위치로 나눕니다. <i>a</i>는 5개 이하라서 <i>aaa</i> 묶음은 하나뿐이고,
+      <i>aaa</i> 바로 옆 자리에는 <i>b</i> 또는 <i>c</i>가 와야 합니다(4개 연속 금지).</p>
+  </div>
+
   <div class="card sol-case">
     <div class="card-title">1. <i>aaa</i>가 양 끝에 오는 경우</div>
     <div class="sol-pattern"><i>aaa</i>□□□□ 또는 □□□□<i>aaa</i> <span class="muted">(서로 대칭)</span></div>
-    <p class="muted"><i>aaa</i> 바로 옆 자리에는 <i>b</i> 또는 <i>c</i>가 와야 합니다.</p>
 
-    <div class="sol-step">
+    <div class="sol-step" data-sec="end5">
       <div class="sol-step-title">① <i>a</i>가 5개</div>
       <div>남은 세 자리 중 <i>a</i>가 들어갈 두 자리를 고르고, 나머지 한 자리는 <i>b</i> 또는 <i>c</i></div>
       <div class="formula-box">2 × ₃C₂ × 2 = 12</div>
     </div>
-    <div class="sol-step">
+    <div class="sol-step" data-sec="end4">
       <div class="sol-step-title">② <i>a</i>가 4개</div>
       <div>남은 세 자리 중 <i>a</i>가 들어갈 한 자리를 고르고, 나머지 두 자리는 <i>b</i> 또는 <i>c</i>.
         <i>aaabbba</i>처럼 <i>bbb</i>(<i>ccc</i>)가 생기는 1가지는 뺍니다.</div>
       <div class="formula-box">2 × (₃C₁ × 2 × 2 − 1) = 22</div>
     </div>
-    <div class="sol-step">
+    <div class="sol-step" data-sec="end3">
       <div class="sol-step-title">③ <i>a</i>가 3개</div>
       <div>뒤 네 자리를 <i>b</i>, <i>c</i>로만 채우고, <i>aaabbbb</i>, <i>aaabbbc</i>, <i>aaabccc</i>처럼
         <i>bbb</i>나 <i>ccc</i>가 생기는 경우를 뺍니다.</div>
       <div class="formula-box">2⁴ − 2 × 3 = 10</div>
     </div>
-    <div class="sol-sum">12 + 22 + 10 = 44, 양 끝 두 경우이므로 44 × 2 = <b>88</b></div>
+    <div class="sol-sum" data-sec="end_sum">12 + 22 + 10 = 44, 양 끝 두 경우이므로 44 × 2 = <b>88</b></div>
   </div>
 
   <div class="card sol-case">
     <div class="card-title">2. <i>aaa</i>가 가운데 오는 경우</div>
     <p class="muted"><i>aaa</i> 양옆은 모두 <i>b</i> 또는 <i>c</i>입니다.</p>
 
-    <div class="sol-step">
+    <div class="sol-step" data-sec="mid1">
       <div class="sol-step-title">① □<i>aaa</i>□□□</div>
       <div>마지막 세 자리가 <i>bbb</i>, <i>ccc</i>가 되는 경우를 뺍니다.</div>
       <div class="formula-box">2 × 2 × (3² − 1) = 32</div>
     </div>
-    <div class="sol-step">
+    <div class="sol-step" data-sec="mid2">
       <div class="sol-step-title">② □□<i>aaa</i>□□</div>
       <div><i>aaa</i> 바로 옆 두 자리는 <i>b</i> 또는 <i>c</i>, 맨 앞과 맨 뒤는 아무 문자나 올 수 있습니다.</div>
       <div class="formula-box">2 × 2 × 3 × 3 = 36</div>
     </div>
-    <div class="sol-step">
+    <div class="sol-step" data-sec="mid3">
       <div class="sol-step-title">③ □□□<i>aaa</i>□</div>
       <div>①과 대칭입니다.</div>
       <div class="formula-box">32</div>
     </div>
-    <div class="sol-sum">32 + 36 + 32 = <b>100</b></div>
+    <div class="sol-sum" data-sec="mid_sum">32 + 36 + 32 = <b>100</b></div>
   </div>
 
-  <div class="answer-line">88 + 100 = <b>188</b></div>
+  <div class="answer-line" data-sec="total">88 + 100 = <b>188</b></div>
+</template>
 
-  <div class="btn-row">
-    <button class="btn-primary" id="solution-retry-btn">다시 풀어보기</button>
-  </div>
-</div>
-
-<script src="/js/demo.js"></script>
+<script src="/js/demo.js?v=20261104"></script>
 </body>
 </html>

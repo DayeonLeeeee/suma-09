@@ -262,3 +262,162 @@ img{display:block;max-width:100%}
 .rec-formula{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair2);font-size:12px}
 
 #screen-result .hint-tab.locked{opacity:.55}
+
+/* ─── 시연: 화면 흐름 개편 (홈 · 카메라 · 문제 읽기 · 확인 · 해설 비교) ─── */
+[hidden]{display:none !important}
+.screen{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))}
+.nav-btn{min-height:40px}
+.center{text-align:center}
+
+/* 홈 */
+.home-hero{padding:28px 2px 22px}
+.eyebrow{font-size:12px;font-weight:800;color:var(--accent);letter-spacing:.5px;margin-bottom:10px}
+.home-hero h1{font-size:28px;line-height:1.3;font-weight:900;letter-spacing:-.5px;color:var(--ink0);text-wrap:balance}
+.home-hero p{margin-top:12px;color:var(--ink2);font-size:14px;line-height:1.65;word-break:keep-all}
+.shoot-card{
+  display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--ink0);color:#fff;border-radius:var(--radius);padding:20px 18px;
+  box-shadow:0 6px 18px rgba(13,11,8,.18);transition:transform .12s;
+}
+.shoot-card:active{transform:scale(.985)}
+.shoot-icon{
+  width:52px;height:52px;border-radius:14px;flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--accent);color:#fff;
+}
+.shoot-text{display:flex;flex-direction:column;gap:3px;flex:1}
+.shoot-title{font-size:17px;font-weight:900}
+.shoot-sub{font-size:12px;color:rgba(255,255,255,.7)}
+.shoot-arrow{font-size:28px;font-weight:300;color:rgba(255,255,255,.6)}
+.link-btn{
+  display:block;width:100%;margin-top:10px;min-height:44px;
+  font-size:13px;font-weight:700;color:var(--ink2);text-decoration:underline;text-underline-offset:3px;
+}
+.how{margin-top:18px;background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius);padding:16px}
+.how-title{font-size:12px;font-weight:800;color:var(--ink3);margin-bottom:6px}
+.how-step{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--hair2)}
+.how-step:last-child{border-bottom:none}
+.how-step b{display:block;font-size:14px}
+.how-step span:not(.how-no){font-size:12px;color:var(--ink3)}
+.how-no{
+  width:24px;height:24px;border-radius:12px;flex-shrink:0;margin-top:1px;
+  background:var(--accent-soft);color:var(--accent-ink);
+  font-size:12px;font-weight:900;display:inline-flex;align-items:center;justify-content:center;
+}
+
+/* 카메라 */
+.screen.camera{position:fixed;inset:0;z-index:50;padding:0;background:#000;color:#fff;overflow:hidden}
+.screen.camera.active{display:block}
+#cam-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.cam-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+.cam-flash.go{animation:camflash .35s ease-out}
+@keyframes camflash{0%{opacity:.85}100%{opacity:0}}
+.cam-top{
+  position:absolute;left:0;right:0;top:0;z-index:2;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:calc(12px + env(safe-area-inset-top,0px)) max(14px,env(safe-area-inset-right,0px)) 12px max(14px,env(safe-area-inset-left,0px));
+  background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,0));
+}
+.cam-round{
+  width:44px;height:44px;border-radius:22px;flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.25);
+}
+.cam-round.on{background:#FFD54A;color:#1A1814;border-color:#FFD54A}
+.cam-round-spacer{width:44px;flex-shrink:0}
+.cam-title{font-size:15px;font-weight:800;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.cam-frame{
+  position:absolute;z-index:1;left:7%;right:7%;top:18%;bottom:27%;pointer-events:none;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.28);border-radius:12px;
+}
+.cam-frame i{position:absolute;width:28px;height:28px;border:3px solid #fff}
+.cam-frame i:nth-child(1){top:-2px;left:-2px;border-right:0;border-bottom:0;border-top-left-radius:12px}
+.cam-frame i:nth-child(2){top:-2px;right:-2px;border-left:0;border-bottom:0;border-top-right-radius:12px}
+.cam-frame i:nth-child(3){bottom:-2px;left:-2px;border-right:0;border-top:0;border-bottom-left-radius:12px}
+.cam-frame i:nth-child(4){bottom:-2px;right:-2px;border-left:0;border-top:0;border-bottom-right-radius:12px}
+.cam-guide{
+  position:absolute;z-index:2;left:0;right:0;bottom:calc(27% - 34px);
+  text-align:center;font-size:13px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.6);
+}
+.cam-bottom{
+  position:absolute;z-index:2;left:0;right:0;bottom:0;
+  display:flex;align-items:center;justify-content:space-around;
+  padding:22px 20px calc(26px + env(safe-area-inset-bottom,0px));
+  background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6));
+}
+.cam-side{
+  width:64px;min-height:56px;display:flex;flex-direction:column;align-items:center;gap:4px;
+  color:#fff;font-size:11px;font-weight:700;
+}
+.cam-shutter{
+  width:76px;height:76px;border-radius:50%;border:4px solid #fff;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.cam-shutter span{width:60px;height:60px;border-radius:50%;background:#fff;transition:transform .1s}
+.cam-shutter:active span{transform:scale(.88)}
+.cam-error{
+  position:absolute;z-index:3;left:20px;right:20px;top:50%;transform:translateY(-50%);
+  background:var(--surface);color:var(--ink);border-radius:var(--radius);padding:20px;
+  display:flex;flex-direction:column;gap:10px;text-align:center;
+}
+.cam-error b{font-size:16px}
+.cam-error span{font-size:13px;color:var(--ink2);line-height:1.6;word-break:keep-all}
+
+/* 문제 읽는 중 */
+.scan-wrap{
+  position:relative;width:200px;max-width:70vw;aspect-ratio:3/4;border-radius:14px;overflow:hidden;
+  background:var(--ink0);box-shadow:0 8px 24px rgba(13,11,8,.18);margin-bottom:6px;
+}
+.scan-wrap img{width:100%;height:100%;object-fit:cover;opacity:.9}
+.scan-line{
+  position:absolute;left:0;right:0;height:3px;top:0;
+  background:var(--accent);box-shadow:0 0 14px 4px rgba(217,96,59,.6);
+  animation:scan 1.6s ease-in-out infinite alternate;
+}
+@keyframes scan{from{top:2%}to{top:97%}}
+.chip.gemini{
+  background:linear-gradient(90deg,#E8F0FE,#F3E8FD);border-color:#D6E0F5;color:#3B4A8A;
+}
+
+/* 문제 확인 */
+.ocr-meta{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}
+.ocr-meta .chip:empty{display:none}
+.confirm-photo{position:relative;border-radius:var(--radius);overflow:hidden;background:var(--ink0);margin-bottom:12px}
+.confirm-photo img{width:100%;max-height:180px;object-fit:cover;opacity:.92}
+.problem-card .pre{white-space:pre-line;word-break:keep-all}
+.sticky-actions{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom,0px));margin-top:auto;padding-top:12px}
+
+/* 풀이 제출 */
+details.fold summary{
+  font-size:13px;font-weight:800;color:var(--ink2);cursor:pointer;list-style:none;
+  display:flex;justify-content:space-between;align-items:center;min-height:24px;
+}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary::after{content:"펼치기";font-size:12px;color:var(--ink3);font-weight:700}
+details.fold[open] summary::after{content:"접기"}
+details.fold[open] summary{margin-bottom:10px}
+.upload-area{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;padding:36px 20px}
+.upload-area .shoot-icon{margin-bottom:4px}
+.type-row{margin:-4px 0 12px}
+
+/* 해설: 내 풀이와 비교 */
+.card.compare{border-left:4px solid var(--accent)}
+.card.compare.ok{border-left-color:var(--ok)}
+.compare-lead{font-size:14px;color:var(--ink2);line-height:1.6}
+.compare-line{background:var(--accent-soft);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px}
+.compare-line span{display:block;font-size:11px;font-weight:800;color:var(--accent);margin-bottom:4px}
+.compare-line div{font-size:14px;line-height:1.6}
+.compare-note{font-size:14px;line-height:1.65;color:var(--ink);margin-bottom:8px;word-break:keep-all}
+.focus-mark{background:var(--accent-soft);color:var(--accent-ink);font-weight:800;padding:0 4px;border-radius:4px}
+.sol-lead{font-size:14px;line-height:1.65;word-break:keep-all}
+.focus{
+  position:relative;background:var(--accent-soft);border-radius:var(--radius-sm);
+  outline:2px solid var(--accent);outline-offset:2px;
+}
+.sol-step.focus,.sol-sum.focus{padding-left:10px;padding-right:10px;margin-top:16px}
+.focus::before{
+  content:"내가 틀린 곳";position:absolute;top:-10px;right:10px;
+  background:var(--accent);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:8px;
+}
+.card.focus{border-color:var(--accent)}
+.center-msg.small{flex:none;padding:24px}

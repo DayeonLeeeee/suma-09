@@ -6,7 +6,7 @@
 
 ```
 app.py              Flask 서버 (API + 프론트엔드 서빙)
-static/index.html   시연 페이지 (30번 문제 하나, DB 저장 없음) → /
+static/index.html   시연 페이지 → /  (문제 촬영 → OCR → 풀이 촬영 → 채점 → 해설, 30번은 전용 처리, DB 저장 없음)
 static/js/demo.js
 static/field/       현장연구 때 쓰던 학생 화면 (번호 로그인, Supabase 기록) → /field/
 sql/schema.sql      Supabase 테이블 스키마

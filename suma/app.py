@@ -396,7 +396,33 @@ B06·B13 (공식·계산 실수)
   explanation·ai_explanation·hint_direction·hint_concept·error_detail에는 쓰지 마세요.
   단, 학생이 풀이에 직접 쓴 숫자를 인용하는 것은 괜찮습니다.
 - 학생이 빠뜨린 경우가 구체적으로 무엇인지는 hint_near_answer 전까지 말하지 마세요.
+
+[추가 출력 — 해설 화면 연결]
+학생은 채점 뒤 '해설 보기'를 누르면 위 기준 풀이와 같은 해설을 봅니다. 해설 화면을 학생 풀이에 맞추기 위해
+JSON에 아래 두 키를 함께 넣으세요.
+- "solution_focus": 학생의 처음 틀린 줄(또는 빠뜨린 경우)과 이어지는 해설 구간 id 목록 (1~3개).
+  구간 id: "split"(경우 나누기·aaa 옆 칸 조건), "end5", "end4", "end3"(양 끝, a가 5·4·3개),
+  "end_sum"(양 끝 합), "mid1"(_aaa___), "mid2"(__aaa__), "mid3"(___aaa_), "mid_sum"(가운데 합), "total"(최종 합).
+  학생이 다른 방법(위치 다섯 가지 등)으로 풀었으면 같은 내용을 다루는 구간으로 연결하세요.
+  정답이면 빈 목록 [].
+- "solution_note": 해설 화면 맨 위에 보일 1~2문장. 학생 풀이의 처음 틀린 줄과 해설의 해당 구간을 비교해
+  무엇이 달랐는지 말하세요(예: "내 풀이는 양 끝 경우에서 a가 6개 되는 문자열을 빼지 않았어요. 해설 ③을 보세요.").
+  이 문장은 해설과 함께 보이므로 해설의 수치를 써도 됩니다. 정답이면 학생 풀이 방식과 해설 방식을 한 문장으로 비교하세요.
 """
+
+DEMO_SOLUTION_SECTIONS = {"split", "end5", "end4", "end3", "end_sum", "mid1", "mid2", "mid3", "mid_sum", "total"}
+
+
+def clean_solution_focus(result):
+    """해설 강조 구간 id를 정리 (알 수 없는 id 제거, 정답이면 비움)."""
+    focus = result.get("solution_focus") or []
+    if isinstance(focus, str):
+        focus = [focus]
+    focus = [f for f in focus if isinstance(f, str) and f in DEMO_SOLUTION_SECTIONS]
+    result["solution_focus"] = [] if result.get("is_correct") else list(dict.fromkeys(focus))[:3]
+    if not isinstance(result.get("solution_note"), str):
+        result["solution_note"] = ""
+    return result
 
 
 def build_demo_grading_prompt(problem_text, clean_steps):
@@ -523,6 +549,9 @@ def demo_rewrite_leaks(result, prompt, clean_steps):
                                followup=DEMO_LEAK_RETRY.format(leaks=", ".join(leaks)))
             for k in ("is_correct", "error_step_index", "error_category"):
                 retry[k] = result.get(k)
+            for k in ("solution_focus", "solution_note"):
+                if not retry.get(k):
+                    retry[k] = result.get(k)
             if len(retry.get("steps") or []) == len(result.get("steps") or []):
                 for a, b in zip(retry["steps"], result["steps"]):
                     a["status"] = b.get("status")
@@ -532,6 +561,7 @@ def demo_rewrite_leaks(result, prompt, clean_steps):
             print(f"[Grade] demo rewrite failed: {e}")
     result["_answer_leak"] = find_demo_leaks(result, clean_steps)
     result = scrub_demo_leaks(result, clean_steps)
+    result = clean_solution_focus(result)
     result["problem_key"] = DEMO_KEY
     return result
 
@@ -701,6 +731,13 @@ def ocr_endpoint():
         }
         if mode == "solution" and "steps" in gemini_json:
             result["steps"] = gemini_json["steps"]
+
+        # 문제 사진이 시연 문제(30번)로 읽히면 표시 → 화면이 정돈된 문제·전용 채점·고정 해설을 씀
+        if mode == "problem":
+            ocr_all = " ".join(str(gemini_json.get(k, "")) for k in ("ocr_text", "latex"))
+            if is_demo_problem(ocr_all):
+                result["problem_key"] = DEMO_KEY
+                print("[OCR] demo problem detected")
 
         return jsonify(result)
 

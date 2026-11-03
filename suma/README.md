@@ -6,8 +6,18 @@
 
 ```
 app.py              Flask 서버 (API + 프론트엔드 서빙)
-static/             HTML/CSS/JS (SPA)
+static/index.html   시연 페이지 (30번 문제 하나, DB 저장 없음) → /
+static/js/demo.js
+static/field/       현장연구 때 쓰던 학생 화면 (번호 로그인, Supabase 기록) → /field/
 sql/schema.sql      Supabase 테이블 스키마
+tests/              E2E·API 테스트 (외부 API와 DB는 가짜 응답으로 대체)
+```
+
+## 테스트
+
+```bash
+pip install -r tests/requirements-dev.txt
+pytest tests          # 브라우저는 로컬 Google Chrome 사용
 ```
 
 ## 배포 (Railway)
@@ -46,5 +56,6 @@ python app.py
 |-----------|--------|------|
 | `/api/health` | GET | 서버 상태 |
 | `/api/ocr` | POST | 이미지 OCR (Mathpix + Gemini + Claude) |
-| `/api/grade` | POST | 풀이 채점 (Claude) |
+| `/api/grade` | POST | 풀이 채점 (Claude). `reference_solution`을 넣으면 채점 기준으로 참고 |
+| `/api/recommend` | POST | 오답유형 기반 유사 문제 추천 (설계 단계) |
 | `/api/solution` | POST | 해설 생성 (Claude + GPT-4o) |

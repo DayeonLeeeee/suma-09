@@ -28,7 +28,7 @@ CORS(app)
 # 프롬프트 모듈
 # ═══════════════════════════════════════════════════
 
-PROMPT_VERSION = "v3.1-2026-10-18"
+PROMPT_VERSION = "v3.2-demo30-2026-11-03"
 
 # ─── Batanero 15유형 오류 분류 체계 ──────────────────
 BATANERO_ERROR_TYPES = """[Batanero 오류 분류 체계 — 15유형]
@@ -125,12 +125,16 @@ GRADING_SYSTEM = (
 )
 
 
-def build_grading_prompt(problem_text, clean_steps, correct_answer):
+def build_grading_prompt(problem_text, clean_steps, correct_answer, reference_solution=""):
     answer_info = f"\n[이 문제의 정답]\n{correct_answer}\n" if correct_answer else ""
+    reference_info = (
+        f"\n[참고 풀이 — 채점 기준으로만 사용, 학생에게 그대로 노출 금지]\n{reference_solution}\n"
+        "학생이 다른 방법으로 풀었더라도 논리가 타당하면 맞게 채점하세요.\n"
+    ) if reference_solution else ""
 
     return f"""[문제]
 {problem_text}
-{answer_info}
+{answer_info}{reference_info}
 [학생의 풀이]
 {clean_steps}
 
@@ -262,6 +266,274 @@ def build_solution_prompt(problem_text, correct_answer):
         {{"step": 1, "title": "단계 제목", "content": "설명 (수식은 $...$)", "formula": "$핵심 수식$"}}
     ]
 }}"""
+
+
+# ═══════════════════════════════════════════════════
+# 시연 문제 전용 모듈 (30번 · 7자리 문자열 · aaa)
+#   화면(static/js/demo.js)의 해설과 같은 흐름을 채점 기준으로 쓴다
+# ═══════════════════════════════════════════════════
+
+DEMO_KEY = "DEMO-30"
+DEMO_ANSWER = "188"   # 3^7개 문자열 전수 계산으로 검증
+
+# 학생에게 노출 금지 수치 (학생이 직접 쓴 숫자는 예외)
+DEMO_FORBIDDEN_VALUES = ["188"]                                          # 모든 필드 금지
+DEMO_CASE_VALUES = ["44", "88", "100", "12", "22", "10", "32", "36"]     # hint_near_answer에서만 허용
+
+
+def _norm(t: str) -> str:
+    """OCR·LaTeX 표기 차이 정리: 공백·$·LaTeX 명령/괄호 제거, 소문자화."""
+    t = t or ""
+    t = re.sub(r"\\(?:text|mathrm|mathit|textit|operatorname)\s*", "", t)
+    t = re.sub(r"[\s$\\{}()（）'\"“”‘’]", "", t)
+    return t.lower()
+
+
+# 문제 문장이 조금씩 달라도 잡히도록 '단서 일부만 맞아도' 판별
+DEMO_CLUES = [
+    "7자리", "문자열", "연달아", "뿐이다", "4개이상", "5개이하", "중복을허락",
+    "baaacca", "ccbbaaa", "aabbcca", "aaabccc", "ccbaaaa",
+]
+DEMO_CLUE_THRESHOLD = 4
+
+
+def is_demo_problem(problem_text: str, problem_key: str = "") -> bool:
+    """시연 문제 판별: problem_key가 오거나, 문제 문장 단서가 4개 이상 맞으면."""
+    if problem_key == DEMO_KEY:
+        return True
+    t = _norm(problem_text)
+    return sum(1 for c in DEMO_CLUES if c in t) >= DEMO_CLUE_THRESHOLD
+
+
+DEMO_GRADING_BLOCK = """[이 문제 전용 채점 지침 — 시연 문제]
+
+[조건 해석 — 채점 기준]
+- 문자는 a, b, c. 같은 문자를 여러 번 써도 되지만 각 문자는 5개 이하. 모두 7개로 7자리 문자열.
+- (가) 정확히 3개가 연달아 이어진 묶음이 있어야 하고, 그런 묶음을 이루는 문자는 a뿐이다.
+  → b나 c가 3개 연속되는 문자열은 제외.
+- (나) 어떤 문자도 4개 이상 연속되면 안 된다. → aaa 바로 옆 칸에는 a가 올 수 없다(b 또는 c).
+- a가 5개 이하이므로 aaa 묶음은 정확히 하나만 생긴다 (aaa?aaa는 a가 6개).
+
+[기준 풀이 — 채점 전용, 학생에게 노출 금지. 학생이 나중에 보는 해설과 같은 흐름]
+aaa 묶음의 위치로 경우를 나눈다.
+1. aaa가 양 끝 (aaa____ 또는 ____aaa, 대칭)
+   aaa 옆 칸은 b 또는 c. 나머지 세 자리에 들어가는 a의 개수로 나눈다.
+   - a가 5개: 2 × 3C2 × 2 = 12
+   - a가 4개: 2 × (3C1 × 2 × 2 − 1) = 22  (aaabbba처럼 bbb가 생기는 경우 제외)
+   - a가 3개: 2^4 − 2 × 3 = 10  (bbb, ccc가 생기는 경우 제외)
+   - 한쪽 끝 44, 양 끝 44 × 2 = 88
+2. aaa가 가운데
+   - _aaa___: 2 × 2 × (3^2 − 1) = 32
+   - __aaa__: 2 × 2 × 3 × 3 = 36
+   - ___aaa_: 32 (대칭)
+   - 합 100
+3. 답: 88 + 100 = 188
+
+[다른 풀이 허용]
+- 위치를 다섯 가지(1~3, 2~4, 3~5, 4~6, 5~7번째)로 바로 나누고, 양 끝에서 나머지 세 자리 27가지 중
+  조건에 맞지 않는 5가지를 빼는 풀이(2 × 22 = 44)도 맞는 풀이다.
+- 위치 순서·이름·묶는 방식이 달라도, 경우를 빠짐없이 겹치지 않게 나누고 각 경우를 바르게 세면 "ok".
+- "전체에서 조건에 맞지 않는 것을 뺀다"(경우의 수 빼기)는 허용. 단, 합집합 공식 형태의 포함배제 원리를 명시적으로 쓰면 B15.
+- 3×3×3, 2^4를 곱의 법칙으로 세는 것은 허용. 중복순열 기호(₃Π₃ 등)를 쓰면 B15.
+- 양 끝/가운데 경우를 "대칭이므로 같다"고 쓰는 것은 허용.
+
+[이 문제에서 자주 나오는 오답 → 오답유형 판별표]
+학생 풀이에서 처음 틀린 줄의 오류가 아래 중 무엇인지 고르세요. 표에 없으면 15유형 정의로 판단.
+| 학생 풀이의 모습 | 유형 |
+| aaa의 위치 경우를 일부만 나눔 (예: 양 끝만, 가운데 일부 빠짐) | B01 |
+| 양 끝 경우에서 a 개수(5·4·3개) 경우 중 일부를 빠뜨림 | B01 |
+| 경우를 나눴지만 범위가 서로 겹치거나 경계가 빠짐 | B09 |
+| aaa 바로 옆 칸에 a를 허용함 (4연속이 생김) | B04 |
+| b·c가 3개 연속되는 문자열을 빼지 않음 ((가)의 'a뿐' 무시) | B08 |
+| a가 6개가 되는 문자열(aaa?aaa)을 빼지 않음 (5개 이하 조건 무시) | B08 |
+| aaa를 한 덩어리로 놓고 나머지 4자리를 자유롭게 채워, 같은 문자열을 여러 번 셈 | B05 |
+| 경우별 결과를 곱해서 합침, 또는 한 경우 안에서 곱할 것을 더함 | B03 |
+| 3C2, 3C1 같은 조합 계산 자체를 잘못 씀 | B06 |
+| 개념·경우 나누기는 맞는데 사칙연산에서 실수 | B13 |
+| 경우의 수가 근거 없이 갑자기 나옴 | B12 |
+| aaa를 문자열 전체에서 a를 3개 고르는 조합으로 세는 등, 연속 조건을 다른 구조로 바꿈 | B14 |
+
+[처음 틀린 줄 판정 규칙 — 이 문제]
+- 경우를 일부만 나눈 경우(B01): 경우 나누기를 선언한 줄이 "wrong". 선언 없이 바로 계산했다면 합하는 줄이 "wrong".
+- 한 경우 안에서의 오류(B04, B08, B13 등): 그 경우를 계산한 줄 중 오류가 처음 나타난 줄이 "wrong".
+- 앞 경우가 틀리고 뒤 경우는 맞게 계산했더라도, 뒤 줄은 모두 "depends".
+
+[이 문제 전용 힌트 사다리 — 유형별]
+아래 사다리의 구조와 정보량을 따르세요. 문장은 학생 풀이에 맞게 다듬되 정보량을 늘리지 마세요.
+3단계 힌트는 위 기준 풀이(학생이 나중에 볼 해설)의 흐름과 용어(양 끝 / 가운데, a의 개수)를 따르세요.
+B01 (경우 누락)
+  1단계: "aaa가 놓일 수 있는 자리를 다시 세어 보세요." (양 끝 안에서 빠뜨렸다면 "a의 개수로 나눈 경우를 다시 세어 보세요.")
+  2단계: 빠짐없이 경우를 나눠야 한다는 점(aaa 위치를 한 칸씩 옮기기, 또는 a의 개수를 하나씩 바꾸기).
+  3단계: aaa가 양 끝인 경우와 가운데인 경우(세 가지)로 나누고, 양 끝은 a가 5·4·3개인 경우로 나눈다는 점까지.
+B04 (옆 칸 a 허용)
+  1단계: "aaa 바로 옆 칸에 올 수 있는 문자를 확인하세요."
+  2단계: 옆 칸에 a가 오면 a가 4개 연속되어 (나)에 어긋나므로, 옆 칸을 고정 조건으로 먼저 처리해야 한다는 점.
+  3단계: 옆 칸은 b, c 두 가지뿐이고, 해당 경우의 칸별 가짓수를 구체적으로 제시.
+B08 ('a뿐' 무시)
+  1단계: "(가)의 'a뿐이다'를 다시 읽어 보세요."
+  2단계: b나 c가 3개 연속되는 문자열도 조건에 맞지 않으므로 빼야 한다는 점.
+  3단계: 학생이 계산한 경우에서 빼야 할 문자열의 모양(예: aaabbba의 bbb, 끝 네 자리가 bbb나 ccc를 포함)을 제시.
+B08 (5개 이하 무시)
+  1단계: "문제 첫 문장의 개수 조건을 다시 보세요."
+  2단계: 각 문자는 5개 이하이므로 a가 6개가 되는 문자열은 빼야 한다는 점.
+  3단계: aaa가 양 끝에 있을 때 반대편 세 자리가 다시 aaa이면 a가 6개가 된다는 점.
+B05 (덩어리 중복)
+  1단계: "같은 문자열을 두 번 센 곳이 없는지 확인하세요."
+  2단계: aaa를 한 덩어리로 두고 나머지를 자유롭게 채우면 덩어리 옆에 a가 붙은 문자열이 다른 경우와 겹친다는 점, 위치로 나누고 옆 칸을 제한해야 한다는 점.
+  3단계: 양 끝·가운데로 위치를 나누고, 각 위치에서 옆 칸이 b, c뿐이라는 점.
+B03 (합·곱 혼동)
+  1단계: "경우별 결과를 합칠 때 쓴 연산을 확인하세요."
+  2단계: aaa의 위치(또는 a의 개수)가 다른 경우는 동시에 일어나지 않으므로 합의 법칙을 쓴다는 점.
+  3단계: 경우별로 구한 값을 모두 더하면 된다는 점 (합 결과는 쓰지 않음).
+B06·B13 (공식·계산 실수)
+  1단계: "이 줄의 계산을 다시 해 보세요."
+  2단계: 어느 계산(조합 값, 뺄셈, 곱셈)을 검산해야 하는지.
+  3단계: 그 줄의 올바른 중간 계산식을 제시하되 최종 답은 쓰지 않음.
+
+[이 문제 전용 노출 금지]
+- 최종 답 188은 어떤 필드에도 절대 쓰지 마세요. hint_near_answer도 마찬가지입니다.
+- 기준 풀이의 경우별 수치(12, 22, 10, 44, 88, 32, 36, 100)는 hint_near_answer에서만 쓸 수 있고,
+  explanation·ai_explanation·hint_direction·hint_concept·error_detail에는 쓰지 마세요.
+  단, 학생이 풀이에 직접 쓴 숫자를 인용하는 것은 괜찮습니다.
+- 학생이 빠뜨린 경우가 구체적으로 무엇인지는 hint_near_answer 전까지 말하지 마세요.
+"""
+
+
+def build_demo_grading_prompt(problem_text, clean_steps):
+    """시연 문제 전용 채점 프롬프트: 공통 프롬프트 + 전용 지침 (참고 풀이는 지침 안에 포함)."""
+    base = build_grading_prompt(problem_text, clean_steps, DEMO_ANSWER)
+    marker = "\n[채점 원칙 — 매우 중요]"
+    return base.replace(marker, "\n" + DEMO_GRADING_BLOCK + marker, 1)
+
+
+def _has_num(text, v):
+    return isinstance(text, str) and re.search(rf"(?<!\d){v}(?!\d)", text) is not None
+
+
+def _demo_leak_targets(result, student_text):
+    """(필드 위치, 금지값 목록). 학생이 직접 쓴 숫자는 노출이 아니므로 제외."""
+    def not_written(values):
+        return [v for v in values if not _has_num(student_text, v)]
+    strict = not_written(DEMO_FORBIDDEN_VALUES + DEMO_CASE_VALUES)
+    final_only = not_written(DEMO_FORBIDDEN_VALUES)
+    targets = [(("top", k), strict) for k in ("ai_explanation", "hint_direction", "hint_concept", "error_detail")]
+    targets.append((("top", "hint_near_answer"), final_only))
+    for i, _ in enumerate(result.get("steps", []) or []):
+        targets.append((("step", i), strict))
+    return targets
+
+
+def _leak_get(result, where):
+    kind, k = where
+    return result.get(k) if kind == "top" else result["steps"][k].get("explanation")
+
+
+def _leak_set(result, where, value):
+    kind, k = where
+    if kind == "top":
+        result[k] = value
+    else:
+        result["steps"][k]["explanation"] = value
+
+
+def find_demo_leaks(result, student_text):
+    leaks = []
+    for where, values in _demo_leak_targets(result, student_text):
+        text = _leak_get(result, where)
+        for v in values:
+            if _has_num(text, v):
+                leaks.append(f"{where[1]}:{v}")
+    return leaks
+
+
+def scrub_demo_leaks(result, student_text):
+    """재작성 후에도 남은 노출만 '그 값'으로 바꾼다 (마지막 안전장치)."""
+    for where, values in _demo_leak_targets(result, student_text):
+        text = _leak_get(result, where)
+        if not isinstance(text, str):
+            continue
+        for v in values:
+            text = re.sub(rf"(?<!\d){v}(?!\d)", "그 값", text)
+        _leak_set(result, where, text)
+    return result
+
+
+DEMO_LEAK_RETRY = """
+
+[재작성 지시] 직전 응답에서 학생에게 보여 주면 안 되는 수치가 노출되었습니다: {leaks}
+- 최종 답은 어떤 필드에도 쓰지 마세요.
+- 경우별 수치는 hint_near_answer에서만 쓸 수 있습니다.
+- 학생이 직접 쓴 숫자를 인용하는 것은 괜찮습니다.
+판정(is_correct, status, error_category, error_step_index)은 바꾸지 말고 문장만 고쳐 같은 JSON 형식으로 다시 출력하세요."""
+
+
+# 시연 문제 해설 — 화면(demo.js) 해설과 같은 흐름, 전수 계산과 일치 확인 (LLM 호출 없음)
+DEMO_SOLUTION = {
+    "method_type": "aaa의 위치로 경우 나누기",
+    "concept_tags": ["합의 법칙", "곱의 법칙", "경우 나누기"],
+    "answer": DEMO_ANSWER,
+    "steps": [
+        {"step": 1, "title": "경우 나누기",
+         "content": "$aaa$ 묶음의 위치로 경우를 나눕니다. $aaa$ 바로 옆에는 $b$ 또는 $c$가 와야 합니다.",
+         "formula": "양 끝 / 가운데"},
+        {"step": 2, "title": "양 끝",
+         "content": "나머지 세 자리의 $a$ 개수로 나눕니다. $a$ 5개 $2\\times{}_3C_2\\times2=12$, 4개 $2\\times({}_3C_1\\times2\\times2-1)=22$, 3개 $2^4-2\\times3=10$.",
+         "formula": "$44\\times2=88$"},
+        {"step": 3, "title": "가운데",
+         "content": "$\\_aaa\\_\\_\\_$는 $2\\times2\\times(3^2-1)=32$, $\\_\\_aaa\\_\\_$는 $2\\times2\\times3\\times3=36$, $\\_\\_\\_aaa\\_$는 대칭으로 $32$.",
+         "formula": "$32+36+32=100$"},
+        {"step": 4, "title": "합하기",
+         "content": "경우들은 동시에 일어나지 않으므로 합의 법칙으로 더합니다.",
+         "formula": "$88+100=188$"},
+    ],
+}
+
+
+GRADE_FINAL_INSTRUCTION = "\n\n[최종 지시] 사고 과정을 출력하지 마세요. 오직 JSON 객체 하나만 출력하세요. 첫 글자가 반드시 '{'이어야 합니다."
+
+
+def run_grader(prompt, assistant_prev=None, followup=None):
+    """채점 호출 (JSON 파싱 실패 시 1회 재시도). assistant_prev/followup이 있으면 재작성 요청."""
+    messages = [{"role": "user", "content": prompt + GRADE_FINAL_INSTRUCTION}]
+    if assistant_prev and followup:
+        messages += [{"role": "assistant", "content": assistant_prev},
+                     {"role": "user", "content": followup + GRADE_FINAL_INSTRUCTION}]
+    last_raw = ""
+    for attempt in range(2):
+        msg = claude_client.messages.create(
+            model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
+            system=GRADING_SYSTEM, messages=messages,
+        )
+        last_raw = msg.content[0].text if msg.content else ""
+        print(f"[Grade] attempt={attempt+1}, stop={msg.stop_reason}, len={len(last_raw)}, first100={last_raw[:100]!r}")
+        try:
+            return parse_json_loose(last_raw)
+        except (json.JSONDecodeError, Exception) as parse_err:
+            print(f"[Grade] JSON parse fail attempt {attempt+1}: {parse_err}")
+    raise ValueError(f"채점 AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (raw[:200]={last_raw[:200]!r})")
+
+
+def demo_rewrite_leaks(result, prompt, clean_steps):
+    """시연 문제: 노출이 있으면 판정은 그대로 두고 문장만 한 번 다시 쓰게 한 뒤, 남은 것은 가린다."""
+    leaks = find_demo_leaks(result, clean_steps)
+    if leaks:
+        print(f"[Grade] demo leak → rewrite: {leaks}")
+        try:
+            retry = run_grader(prompt, assistant_prev=json.dumps(result, ensure_ascii=False),
+                               followup=DEMO_LEAK_RETRY.format(leaks=", ".join(leaks)))
+            for k in ("is_correct", "error_step_index", "error_category"):
+                retry[k] = result.get(k)
+            if len(retry.get("steps") or []) == len(result.get("steps") or []):
+                for a, b in zip(retry["steps"], result["steps"]):
+                    a["status"] = b.get("status")
+                if len(find_demo_leaks(retry, clean_steps)) < len(leaks):
+                    result = retry
+        except Exception as e:
+            print(f"[Grade] demo rewrite failed: {e}")
+    result["_answer_leak"] = find_demo_leaks(result, clean_steps)
+    result = scrub_demo_leaks(result, clean_steps)
+    result["problem_key"] = DEMO_KEY
+    return result
 
 
 # ═══════════════════════════════════════════════════
@@ -445,29 +717,23 @@ def grade_endpoint():
         solution_steps = data.get("solution_steps", [])
         problem_latex = data.get("problem_latex", "")
         correct_answer = data.get("correct_answer", "")
+        reference_solution = data.get("reference_solution", "")
+        problem_key = data.get("problem_key", "")
 
         clean_problem = problem_latex or problem_text
         clean_steps = "\n".join([f"Step {s['index']}: {s['text']}" for s in solution_steps])
 
-        prompt = build_grading_prompt(clean_problem, clean_steps, correct_answer)
+        demo = is_demo_problem(clean_problem, problem_key)
+        if demo:
+            # 시연 문제: 전용 지침(화면 해설과 같은 기준 풀이 포함) 사용
+            prompt = build_demo_grading_prompt(clean_problem, clean_steps)
+        else:
+            prompt = build_grading_prompt(clean_problem, clean_steps, correct_answer, reference_solution)
+        print(f"[Grade] demo={demo}")
 
-        # 최대 2회 시도 (JSON 파싱 실패 시 재시도)
-        last_raw = ""
-        for attempt in range(2):
-            msg = claude_client.messages.create(
-                model="claude-opus-4-6", max_tokens=4096, temperature=0.0,
-                system=GRADING_SYSTEM,
-                messages=[{"role": "user", "content": prompt + "\n\n[최종 지시] 사고 과정을 출력하지 마세요. 오직 JSON 객체 하나만 출력하세요. 첫 글자가 반드시 '{'이어야 합니다."}],
-            )
-            last_raw = msg.content[0].text if msg.content else ""
-            print(f"[Grade] attempt={attempt+1}, stop={msg.stop_reason}, len={len(last_raw)}, first100={last_raw[:100]!r}")
-            try:
-                result = parse_json_loose(last_raw)
-                break
-            except (json.JSONDecodeError, Exception) as parse_err:
-                print(f"[Grade] JSON parse fail attempt {attempt+1}: {parse_err}")
-                if attempt == 1:
-                    raise ValueError(f"채점 AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (raw[:200]={last_raw[:200]!r})")
+        result = run_grader(prompt)
+        if demo:
+            result = demo_rewrite_leaks(result, prompt, clean_steps)
 
         # 증거 검증 + 모순 점검
         result = validate_evidence(result, clean_steps)
@@ -475,6 +741,20 @@ def grade_endpoint():
 
         # difficulty 키가 혹시 있으면 제거
         result.pop("difficulty", None)
+
+        # (선택) 오답이면 유사 문제 추천 첨부 — 요청에 "recommend": true 일 때만
+        if data.get("recommend") and not result.get("is_correct") and result.get("error_category"):
+            try:
+                result["recommendation"] = recommend_problem(
+                    error_category=result["error_category"],
+                    original_key=data.get("problem_key"),
+                    original_text=problem_text,
+                    error_step_index=result.get("error_step_index"),
+                    total_steps=len(result.get("steps") or solution_steps),
+                    history=data.get("history", []),
+                )
+            except Exception as rec_err:
+                print(f"[Grade] recommend fail: {rec_err}")
 
         result["success"] = True
         result["prompt_version"] = PROMPT_VERSION
@@ -492,6 +772,14 @@ def solution_endpoint():
         problem_text = data.get("problem_text", "")
         problem_latex = data.get("problem_latex", "")
         the_problem = problem_latex or problem_text
+
+        # 0) 시연 문제: 검증된 고정 풀이 반환 (LLM 호출 없음)
+        if is_demo_problem(the_problem, data.get("problem_key", "")):
+            result = json.loads(json.dumps(DEMO_SOLUTION, ensure_ascii=False))
+            result["success"] = True
+            result["full_solution"] = ""
+            result["problem_key"] = DEMO_KEY
+            return jsonify(result)
 
         # 1) 정답: 클라이언트에서 받거나 Claude로 계산
         correct_answer = data.get("correct_answer", "")
@@ -737,10 +1025,232 @@ def restore_data():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# ═══════════════════════════════════════════════════
+# 유사 문제 추천 — "같은 함정, 다른 겉모습" (설계 단계, 효과 미검증)
+#   ① 필터: 학생의 오답유형을 '발생 가능 유형'으로 가진 문항만, 푼 문항·사실상 같은 문항 제외
+#   ② 점수: 0.4·함정위치 일치 + 0.3·난이도 적합도 + 0.3·새로움
+#   ③ 선택: 최고점 1문항
+# 가중치는 설계값(미튜닝). 문항 태그는 교사 검수 전 임시값.
+# ═══════════════════════════════════════════════════
+# >>> RECOMMENDER START
+
+REC_WEIGHTS = {"trap": 0.4, "difficulty": 0.3, "novelty": 0.3}
+REC_DUP_THRESHOLD = 0.9      # 원문제와 이 이상 유사하면 사실상 같은 문제로 보고 제외
+REC_RECENT_WINDOW = 3        # 새로움 계산 시 비교할 최근 문항 수
+
+# 문항 태그 — key는 TEMP_PROBLEMS의 "{set}-{num}"
+#   error_types: 이 문항에서 발생 가능한 오답유형 (Q-matrix, Tatsuoka 1983)
+#   trap: 주요 함정 위치 early(상황 모델링) / mid(경우 나누기) / late(계산)
+#   ※ 아래 값은 교사 검수 전 임시 태그입니다. 실제 서비스 전 교사 라벨로 교체하세요.
+PROBLEM_TAGS = {
+    "P-1":  {"error_types": ["B07", "B05"],        "trap": "early"},
+    "P-2":  {"error_types": ["B09", "B01"],        "trap": "mid"},
+    "P-3":  {"error_types": ["B01", "B14"],        "trap": "early"},
+    "P-4":  {"error_types": ["B07", "B04"],        "trap": "early"},
+    "P-5":  {"error_types": ["B01", "B08"],        "trap": "mid"},
+    "Q-1":  {"error_types": ["B09", "B05"],        "trap": "mid"},
+    "Q-2":  {"error_types": ["B09", "B07"],        "trap": "mid"},
+    "Q-3":  {"error_types": ["B01"],               "trap": "mid"},
+    "Q-4":  {"error_types": ["B14", "B02"],        "trap": "early"},
+    "Q-5":  {"error_types": ["B08", "B09"],        "trap": "mid"},
+    "P2-1": {"error_types": ["B07", "B02", "B05"], "trap": "early"},
+    "P2-2": {"error_types": ["B09", "B11", "B10"], "trap": "mid"},
+    "P2-3": {"error_types": ["B01", "B08"],        "trap": "mid"},
+    "P2-4": {"error_types": ["B04", "B10"],        "trap": "early"},
+    "P2-5": {"error_types": ["B09", "B13"],        "trap": "late"},
+    "Q2-1": {"error_types": ["B07", "B05"],        "trap": "early"},
+    "Q2-2": {"error_types": ["B09", "B01"],        "trap": "mid"},
+    "Q2-3": {"error_types": ["B01", "B11"],        "trap": "mid"},
+    "Q2-4": {"error_types": ["B01", "B14"],        "trap": "mid"},
+    "Q2-5": {"error_types": ["B07", "B01"],        "trap": "mid"},
+}
+TRAP_STAGES = ("early", "mid", "late")
+
+
+def _rec_level_from_text(text: str) -> int:
+    """출처 표기로 난이도 등급 추정: 일품=1, 블랙라벨 S1=2, S2=3, 표기 없음=2"""
+    if "[일품" in text:
+        return 1
+    if "[블랙라벨 S1" in text:
+        return 2
+    if "[블랙라벨 S2" in text:
+        return 3
+    return 2
+
+
+def _rec_clean_text(text: str) -> str:
+    """유사도 계산용 정리: 출처 태그·보기(①~⑤)·LaTeX 기호 제거 → 문제 본문만 비교"""
+    text = re.sub(r"\[[^\]]*\]", " ", text or "")
+    text = re.split(r"[①②③④⑤]", text)[0]
+    text = re.sub(r"[\$\\{}]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _rec_similarity_matrix(texts):
+    """문제 본문 간 코사인 유사도. scikit-learn TF-IDF(문자 2~3-gram), 없으면 순수 파이썬으로 대체."""
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+        vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 3))
+        return cosine_similarity(vec.fit_transform(texts)).tolist()
+    except ImportError:
+        from collections import Counter
+        import math
+        def grams(t):
+            return Counter(t[i:i + n] for n in (2, 3) for i in range(len(t) - n + 1))
+        g = [grams(t) for t in texts]
+        norms = [math.sqrt(sum(v * v for v in c.values())) or 1.0 for c in g]
+        return [[sum(a[k] * b.get(k, 0) for k in a) / (norms[i] * norms[j])
+                 for j, b in enumerate(g)] for i, a in enumerate(g)]
+
+
+def build_problem_bank():
+    """TEMP_PROBLEMS + PROBLEM_TAGS → 추천용 문항 은행"""
+    bank = []
+    for p in TEMP_PROBLEMS:
+        key = f"{p['set']}-{p['num']}"
+        tags = PROBLEM_TAGS.get(key)
+        if not tags:
+            continue
+        bank.append({
+            "key": key,
+            "text": p["text"],
+            "level": _rec_level_from_text(p["text"]),
+            "error_types": tags["error_types"],
+            "trap": tags["trap"],
+        })
+    return bank
+
+
+def _rec_student_stage(error_step_index, total_steps):
+    """처음 틀린 줄의 상대 위치 → early / mid / late (정보 없으면 None)"""
+    try:
+        idx, total = int(error_step_index), int(total_steps)
+    except (TypeError, ValueError):
+        return None
+    if total <= 0 or idx <= 0:
+        return None
+    ratio = min(idx / total, 1.0)
+    return "early" if ratio <= 1 / 3 else ("mid" if ratio <= 2 / 3 else "late")
+
+
+def _rec_target_level(base_level, error_category, history):
+    """목표 난이도: 같은 유형 2회 이상 오답 → 한 단계 아래, 직전 추천 문항 정답 → 한 단계 위"""
+    repeats = 1 + sum(1 for h in history
+                      if h.get("error_category") == error_category and not h.get("is_correct"))
+    target = base_level - 1 if repeats >= 2 else base_level
+    last_rec = next((h for h in reversed(history) if h.get("recommended")), None)
+    if last_rec and last_rec.get("is_correct"):
+        target += 1
+    return max(1, min(3, target)), repeats
+
+
+def recommend_problem(error_category, original_key=None, original_text="",
+                      error_step_index=None, total_steps=None, history=None, bank=None, top_k=3):
+    """
+    history: [{"problem_key": "P-1", "error_category": "B07", "is_correct": false, "recommended": false}, ...]
+             (오래된 것 → 최근 순)
+    반환: {"recommended": {...} | None, "candidates": [...], "fallback": bool, ...}
+    """
+    history = history or []
+    bank = bank if bank is not None else build_problem_bank()
+    by_key = {b["key"]: b for b in bank}
+
+    if original_key in by_key and not original_text:
+        original_text = by_key[original_key]["text"]
+    base_level = by_key[original_key]["level"] if original_key in by_key else _rec_level_from_text(original_text)
+
+    seen = {h.get("problem_key") for h in history if h.get("problem_key")}
+    if original_key:
+        seen.add(original_key)
+
+    # 유사도: [원문제, 은행 문항들]
+    texts = [_rec_clean_text(original_text)] + [_rec_clean_text(b["text"]) for b in bank]
+    sim = _rec_similarity_matrix(texts)
+    idx_of = {b["key"]: i + 1 for i, b in enumerate(bank)}
+    recent_idx = [idx_of[h["problem_key"]] for h in history[-REC_RECENT_WINDOW:]
+                  if h.get("problem_key") in idx_of]
+
+    stage = _rec_student_stage(error_step_index, total_steps)
+    target, repeats = _rec_target_level(base_level, error_category, history)
+
+    def score(b):
+        i = idx_of[b["key"]]
+        sim_orig = sim[0][i] if original_text else 0.0
+        max_sim = max([sim_orig] + [sim[r][i] for r in recent_idx])
+        trap = 1.0 if (stage and b["trap"] == stage) else 0.0
+        diff = 1.0 - abs(b["level"] - target) / 2.0
+        novelty = 1.0 - max_sim
+        total = (REC_WEIGHTS["trap"] * trap + REC_WEIGHTS["difficulty"] * diff
+                 + REC_WEIGHTS["novelty"] * novelty)
+        return {"key": b["key"], "level": b["level"], "trap": b["trap"],
+                "error_types": b["error_types"], "text": b["text"],
+                "score": round(total, 4),
+                "breakdown": {"trap_match": trap, "difficulty_fit": round(diff, 3),
+                              "novelty": round(novelty, 3), "sim_to_original": round(sim_orig, 3)}}
+
+    # ① 필터
+    pool = [b for b in bank if b["key"] not in seen]
+    pool = [b for b in pool
+            if not (original_text and sim[0][idx_of[b["key"]]] >= REC_DUP_THRESHOLD)]
+    candidates = [b for b in pool if error_category in b["error_types"]]
+    fallback = not candidates
+    if fallback:            # 같은 유형 문항이 소진되면 남은 문항 전체에서 고름
+        candidates = pool
+
+    # ② 점수 → ③ 선택 (동점이면 원문제와 덜 비슷한 문항, 그다음 key 순)
+    scored = sorted((score(b) for b in candidates),
+                    key=lambda s: (-s["score"], s["breakdown"]["sim_to_original"], s["key"]))
+    return {
+        "recommended": scored[0] if scored else None,
+        "candidates": scored[:top_k],
+        "fallback": fallback,
+        "student_stage": stage,
+        "target_level": target,
+        "same_type_error_count": repeats,
+        "weights": REC_WEIGHTS,
+    }
+
+# <<< RECOMMENDER END
+
+
+@app.route("/api/recommend", methods=["POST"])
+def recommend_endpoint():
+    """
+    요청 JSON:
+      error_category (필수, "B01"~"B15"), problem_key 또는 problem_text,
+      error_step_index, total_steps, history(선택)
+    """
+    try:
+        data = request.get_json() or {}
+        error_category = data.get("error_category")
+        if not error_category:
+            return jsonify({"success": False, "error": "error_category가 필요합니다"}), 400
+        result = recommend_problem(
+            error_category=error_category,
+            original_key=data.get("problem_key"),
+            original_text=data.get("problem_text", ""),
+            error_step_index=data.get("error_step_index"),
+            total_steps=data.get("total_steps"),
+            history=data.get("history", []),
+        )
+        result["success"] = True
+        return jsonify(result)
+    except Exception as e:
+        print(f"[Recommend error] {traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ─── Static 서빙 ─────────────────────────────────────
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
+
+
+# 현장연구 때 쓰던 학생 화면 (시연 페이지와 분리)
+@app.route("/field/")
+def field_study():
+    return send_from_directory("static/field", "index.html")
 
 
 if __name__ == "__main__":

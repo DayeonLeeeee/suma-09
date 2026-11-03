@@ -3,11 +3,14 @@ SUMA 채점 자동 테스트 스크립트
 — 배포된 서버에 정답/오답 풀이를 보내서 채점 결과를 확인합니다.
 — 사용법: python test_grading.py [BASE_URL]
 — 예: python test_grading.py https://suma-09-production.up.railway.app
+— 시연 문제만: python test_grading.py https://... --demo
 """
 
 import sys, json, requests, time
 
-BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:5000"
+_args = [a for a in sys.argv[1:] if not a.startswith("--")]
+BASE = _args[0].rstrip("/") if _args else "http://localhost:5000"
+DEMO_ONLY = "--demo" in sys.argv
 
 # ═══ 테스트 케이스: (문제 텍스트, 정답, 정답풀이 steps, 오답풀이 steps) ═══
 TESTS = [
@@ -83,6 +86,175 @@ TESTS = [
 ]
 
 
+# ═══ 시연 문제 (7자리 문자열 · aaa) ═══
+DEMO_TEXT = (
+    "세 문자 a, b, c 중에서 중복을 허락하여 각각 5개 이하씩 모두 7개를 택해 다음 조건을 만족시키는 "
+    "7자리의 문자열을 만들려고 한다. (가) 한 문자가 연달아 3개 이어지고 그 문자는 a뿐이다. "
+    "(나) 어느 한 문자도 연달아 4개 이상 이어지지 않는다. 예를 들어, baaacca, ccbbaaa는 조건을 "
+    "만족시키는 문자열이고 aabbcca, aaabccc, ccbaaaa는 조건을 만족시키지 않는 문자열이다. "
+    "만들 수 있는 모든 문자열의 개수를 구하시오."
+)
+DEMO_ANSWER = "188"
+
+def S(*lines):
+    return [{"index": i + 1, "text": t} for i, t in enumerate(lines)]
+
+DEMO_CORRECT = S(
+    "aaa가 놓이는 위치로 나눈다: 1~3, 2~4, 3~5, 4~6, 5~7번째",
+    "1~3번째: 4번째는 b 또는 c → 2가지. 5~7번째 27가지 중 bba, bbb, bbc, ccc, aaa 5가지 제외 → 22. 2×22=44",
+    "5~7번째: 같은 방법으로 44",
+    "2~4번째: 1번째 2가지, 5번째 2가지, 6·7번째 9가지 중 5번째와 같은 문자 2개 제외 → 2×2×8=32",
+    "4~6번째: 같은 방법으로 32",
+    "3~5번째: 2번째 2가지, 6번째 2가지, 1·7번째 각 3가지 → 2×3×2×3=36",
+    "44+44+32+32+36=188",
+)
+
+# 화면 해설과 같은 흐름의 정답 풀이 (양 끝은 a 개수로 나누기)
+DEMO_CORRECT_SCREEN = S(
+    "aaa 위치로 나눈다. aaa 옆은 b 또는 c",
+    "aaa가 양 끝: a 5개 2×3C2×2=12, a 4개 2×(3C1×2×2-1)=22, a 3개 2^4-2×3=10 → 44, 44×2=88",
+    "aaa가 가운데: _aaa___ 2×2×(3^2-1)=32, __aaa__ 2×2×3×3=36, ___aaa_ 32 → 100",
+    "88+100=188",
+)
+
+# (라벨, 풀이, 허용 오답유형, 처음 틀린 줄)
+DEMO_WRONG = [
+    ("5개 이하 무시", S(
+        "aaa가 놓이는 위치로 나눈다: 1~3, 2~4, 3~5, 4~6, 5~7번째",
+        "1~3번째: 4번째는 b 또는 c → 2가지. 5~7번째 27가지 중 bba, bbb, bbc, ccc 4가지 제외 → 23. 2×23=46",
+        "5~7번째: 같은 방법으로 46",
+        "2~4번째: 2×2×8=32",
+        "4~6번째: 32",
+        "3~5번째: 2×3×2×3=36",
+        "46+46+32+32+36=192",
+    ), {"B08"}, 2),
+    ("'a뿐' 무시", S(
+        "aaa가 놓이는 위치로 나눈다: 1~3, 2~4, 3~5, 4~6, 5~7번째",
+        "1~3번째: 4번째는 b 또는 c → 2가지. 5~7번째 27가지 중 a가 6개 되는 aaa와 4연속 bbb만 제외 → 25. 2×25=50",
+        "5~7번째: 같은 방법으로 50",
+        "2~4번째: 1번째 2가지, 5번째 2가지, 6·7번째 9가지 → 36",
+        "4~6번째: 36",
+        "3~5번째: 2×3×2×3=36",
+        "50+50+36+36+36=208",
+    ), {"B08"}, 2),
+    ("옆 칸 a 허용", S(
+        "aaa가 놓이는 위치로 나눈다: 1~3, 2~4, 3~5, 4~6, 5~7번째",
+        "1~3번째: 2×22=44",
+        "5~7번째: 44",
+        "2~4번째: 2×2×8=32",
+        "4~6번째: 32",
+        "3~5번째: 나머지 1, 2, 6, 7번째에 a, b, c 아무거나 → 3×3×3×3=81",
+        "44+44+32+32+81=233",
+    ), {"B04"}, 6),
+    ("위치 누락", S(
+        "aaa가 놓이는 위치로 나눈다: 1~3, 3~5, 5~7번째",
+        "1~3번째: 4번째는 b 또는 c → 2가지. 5~7번째 27가지 중 5가지 제외 → 22. 2×22=44",
+        "5~7번째: 44",
+        "3~5번째: 2×3×2×3=36",
+        "44+44+36=124",
+    ), {"B01", "B09"}, 1),
+    ("계산 실수", S(
+        "aaa가 놓이는 위치로 나눈다: 1~3, 2~4, 3~5, 4~6, 5~7번째",
+        "1~3번째: 4번째는 b 또는 c → 2가지. 5~7번째 27가지 중 5가지 제외 → 27-5=21. 2×21=42",
+        "5~7번째: 42",
+        "2~4번째: 2×2×8=32",
+        "4~6번째: 32",
+        "3~5번째: 2×3×2×3=36",
+        "42+42+32+32+36=184",
+    ), {"B13"}, 2),
+    ("덩어리 중복", S(
+        "aaa를 한 묶음으로 보면 묶음의 위치는 5가지",
+        "나머지 4자리는 각각 a, b, c 중 하나 → 3×3×3×3=81",
+        "5×81=405",
+    ), {"B05", "B04"}, 2),
+]
+
+LEAK_STRICT = ["188", "44", "88", "100", "12", "22", "10", "32", "36"]
+LEAK_FIELDS = ["ai_explanation", "hint_direction", "hint_concept"]
+
+
+def check_leak(data, steps):
+    """정답·경우별 수치 노출 검사 (학생이 직접 쓴 숫자는 노출이 아님)"""
+    import re
+    found = []
+    def has(text, v):
+        return isinstance(text, str) and re.search(rf"(?<!\d){v}(?!\d)", text)
+    student = " ".join(s["text"] for s in steps)
+    strict = [v for v in LEAK_STRICT if not has(student, v)]
+    for f in LEAK_FIELDS:
+        for v in strict:
+            if has(data.get(f), v):
+                found.append(f"{f}:{v}")
+    if "188" in strict and has(data.get("hint_near_answer"), "188"):
+        found.append("hint_near_answer:188")
+    for s in data.get("steps", []):
+        for v in strict:
+            if has(s.get("explanation"), v):
+                found.append(f"step{s.get('index')}:{v}")
+    return found
+
+
+def post_grade(steps):
+    payload = {"problem_text": DEMO_TEXT, "correct_answer": DEMO_ANSWER,
+               "solution_steps": steps, "problem_key": "DEMO-30"}
+    r = requests.post(f"{BASE}/api/grade", json=payload, timeout=180)
+    return r.json()
+
+
+def test_demo():
+    print(f"\n{'═'*50}\n  시연 문제 테스트 (정답 2 + 오답 {len(DEMO_WRONG)} + 해설)\n{'═'*50}")
+    total = passed = 0
+
+    # 정답 풀이 (위치 다섯 가지 풀이 / 화면 해설 흐름 풀이)
+    for name, sol in (("정답 풀이·위치 5가지", DEMO_CORRECT), ("정답 풀이·화면 해설 흐름", DEMO_CORRECT_SCREEN)):
+        total += 1
+        d = post_grade(sol)
+        ok = d.get("success") and d.get("is_correct") is True
+        print(f"\n  [{name}] is_correct={d.get('is_correct')}  {'✅' if ok else '❌'}")
+        passed += ok
+        time.sleep(2)
+
+    # 오답 풀이
+    for label, steps, cats, first in DEMO_WRONG:
+        total += 1
+        d = post_grade(steps)
+        if not d.get("success"):
+            print(f"\n  [{label}] ❌ 서버 에러: {d.get('error')}")
+            continue
+        wrongs = [s["index"] for s in d.get("steps", []) if s.get("status") == "wrong"]
+        cat = d.get("error_category")
+        leak_srv = d.get("_answer_leak", [])
+        leak_now = check_leak(d, steps)
+        checks = {
+            "is_correct=false": d.get("is_correct") is False,
+            f"유형∈{sorted(cats)}": cat in cats,
+            f"처음 틀린 줄={first}": wrongs == [first],
+            "노출 없음": not leak_now,
+        }
+        ok = all(checks.values())
+        passed += ok
+        print(f"\n  [{label}] {'✅' if ok else '❌'}  유형={cat}  wrong줄={wrongs}")
+        for k, v in checks.items():
+            if not v:
+                print(f"     ✗ {k}")
+        if leak_srv:
+            print(f"     (재작성 후에도 남아 서버가 바꾼 노출: {leak_srv})")
+        print(f"     힌트1: {d.get('hint_direction')}")
+        print(f"     힌트2: {d.get('hint_concept')}")
+        print(f"     힌트3: {d.get('hint_near_answer')}")
+        time.sleep(2)
+
+    # 해설
+    total += 1
+    s = requests.post(f"{BASE}/api/solution",
+                      json={"problem_text": DEMO_TEXT, "problem_key": "DEMO-30"}, timeout=60).json()
+    ok = s.get("success") and str(s.get("answer")) == DEMO_ANSWER and s.get("problem_key") == "DEMO-30"
+    passed += ok
+    print(f"\n  [해설] answer={s.get('answer')}  고정풀이={s.get('problem_key') == 'DEMO-30'}  {'✅' if ok else '❌'}")
+
+    return passed, total
+
+
 def test_grade(label, text, answer, steps, expect_correct):
     """채점 API를 호출하고 결과를 출력"""
     tag = "정답풀이" if expect_correct else "오답풀이"
@@ -152,6 +324,13 @@ def main():
 
     total = 0
     passed = 0
+
+    p, t_ = test_demo()
+    passed += p
+    total += t_
+    if DEMO_ONLY:
+        print(f"\n{'═'*50}\n  결과: {passed}/{total} 통과\n{'═'*50}")
+        return
 
     for t in TESTS:
         # 정답 풀이 테스트

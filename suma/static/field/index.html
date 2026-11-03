@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>수마 — AI 수학 진단</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+<!-- ════════════ LOGIN (숫자 ID 입력) ════════════ -->
+<div id="screen-login" class="screen active">
+  <div class="login-wrap">
+    <div class="login-logo">수마</div>
+    <div class="login-subtitle">AI 수학 풀이 진단 시스템</div>
+    <div class="login-desc">배정받은 번호를 입력해주세요</div>
+    <div class="login-form">
+      <input type="number" id="login-id-input" class="login-input" placeholder="번호 입력" min="1" max="4" inputmode="numeric"
+        onkeydown="if(event.key==='Enter')loginWithId()">
+      <button class="login-btn" onclick="loginWithId()">시작하기</button>
+      <div class="login-error" id="login-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ HOME (문제 목록) ════════════ -->
+<div id="screen-home" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="logout()">나가기</button>
+    <div class="nav-title" id="home-title">문제 목록</div>
+    <div class="nav-badge" id="home-badge">학생 1</div>
+  </div>
+
+  <div class="progress-bar-wrap">
+    <div class="progress-label">진행률 <span id="progress-text">0/0</span></div>
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+  </div>
+
+  <div id="problem-list" class="problem-list">
+    <!-- 동적 생성 -->
+  </div>
+</div>
+
+<!-- ════════════ PROBLEM DETAIL (문제 보기 + 풀이 촬영) ════════════ -->
+<div id="screen-problem" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('home')">뒤로</button>
+    <div class="nav-title" id="problem-nav-title">문제</div>
+    <div style="width:54px"></div>
+  </div>
+
+  <div class="card" id="problem-display">
+    <div class="problem-number" id="problem-number"></div>
+    <div class="problem-text math-render" id="problem-text"></div>
+  </div>
+
+  <div class="upload-area" id="solution-upload-area">
+    <div class="upload-icon">📷</div>
+    <div class="upload-label">풀이를 촬영해주세요</div>
+    <div class="muted">종이에 풀이를 쓴 후 사진을 찍어주세요</div>
+  </div>
+  <input type="file" id="solution-file-input" accept="image/*" capture="environment">
+
+  <div id="solution-preview" style="display:none">
+    <div class="photo-wrap">
+      <img id="solution-preview-img">
+      <div class="badge solution">내 풀이</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="retakePhoto()">다시 촬영</button>
+      <button class="btn-primary" onclick="submitSolution()">제출하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ PROCESSING (채점 중) ════════════ -->
+<div id="screen-processing" class="screen">
+  <div class="center-msg">
+    <div class="spinner-lg"></div>
+    <h2 id="processing-title">채점 중입니다</h2>
+    <div class="muted" id="processing-desc">사진을 인식하고 채점하고 있습니다...</div>
+    <div class="processing-steps">
+      <div class="proc-step" id="proc-ocr"><span class="proc-dot active"></span> OCR 인식</div>
+      <div class="proc-step" id="proc-grade"><span class="proc-dot"></span> 채점 분석</div>
+      <div class="proc-step" id="proc-hint"><span class="proc-dot"></span> 힌트 생성</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ RESULT (채점 결과 + 힌트) ════════════ -->
+<div id="screen-result" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('home')">목록</button>
+    <div class="nav-title">채점 결과</div>
+    <div style="width:54px"></div>
+  </div>
+
+  <div id="result-content">
+    <!-- 동적 생성 -->
+  </div>
+</div>
+
+<!-- ════════════ SOLUTION VIEW (해설 보기) ════════════ -->
+<div id="screen-solution" class="screen">
+  <div class="nav">
+    <button class="nav-btn" onclick="go('result')">뒤로</button>
+    <div class="nav-title">해설 보기</div>
+    <div style="width:54px"></div>
+  </div>
+  <div id="solution-loading" class="center-msg">
+    <div class="spinner-lg"></div>
+    <h2>해설 생성 중</h2>
+    <div class="muted">잠시만 기다려주세요...</div>
+  </div>
+  <div id="solution-content" style="display:none"></div>
+</div>
+
+<script src="/field/app.js"></script>
+</body>
+</html>

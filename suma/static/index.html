@@ -2,123 +2,152 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>수마 — AI 수학 진단</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>수마 — 풀이 진단 시연</title>
 <link rel="stylesheet" href="/css/style.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
-<!-- ════════════ LOGIN (숫자 ID 입력) ════════════ -->
-<div id="screen-login" class="screen active">
-  <div class="login-wrap">
-    <div class="login-logo">수마</div>
-    <div class="login-subtitle">AI 수학 풀이 진단 시스템</div>
-    <div class="login-desc">배정받은 번호를 입력해주세요</div>
-    <div class="login-form">
-      <input type="number" id="login-id-input" class="login-input" placeholder="번호 입력" min="1" max="4" inputmode="numeric"
-        onkeydown="if(event.key==='Enter')loginWithId()">
-      <button class="login-btn" onclick="loginWithId()">시작하기</button>
-      <div class="login-error" id="login-error"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════ HOME (문제 목록) ════════════ -->
-<div id="screen-home" class="screen">
+<!-- ════════════ 문제 + 풀이 촬영 ════════════ -->
+<div id="screen-problem" class="screen active">
   <div class="nav">
-    <button class="nav-btn" onclick="logout()">나가기</button>
-    <div class="nav-title" id="home-title">문제 목록</div>
-    <div class="nav-badge" id="home-badge">학생 1</div>
-  </div>
-
-  <div class="progress-bar-wrap">
-    <div class="progress-label">진행률 <span id="progress-text">0/0</span></div>
-    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-  </div>
-
-  <div id="problem-list" class="problem-list">
-    <!-- 동적 생성 -->
-  </div>
-</div>
-
-<!-- ════════════ PROBLEM DETAIL (문제 보기 + 풀이 촬영) ════════════ -->
-<div id="screen-problem" class="screen">
-  <div class="nav">
-    <button class="nav-btn" onclick="go('home')">뒤로</button>
-    <div class="nav-title" id="problem-nav-title">문제</div>
-    <div style="width:54px"></div>
+    <div class="nav-logo">수마</div>
+    <div class="nav-badge">시연</div>
   </div>
 
   <div class="card" id="problem-display">
-    <div class="problem-number" id="problem-number"></div>
-    <div class="problem-text math-render" id="problem-text"></div>
+    <div class="problem-head">
+      <span class="problem-no">30</span>
+      <span class="chip">고1 · 순열과 조합</span>
+    </div>
+    <p class="problem-text">
+      세 문자 <i>a</i>, <i>b</i>, <i>c</i> 중에서 중복을 허락하여 각각 5개 이하씩 모두 7개를 택해
+      다음 조건을 만족시키는 7자리의 문자열을 만들려고 한다.
+    </p>
+    <div class="condition-box">
+      <div>(가) 한 문자가 연달아 3개 이어지고 그 문자는 <i>a</i>뿐이다.</div>
+      <div>(나) 어느 한 문자도 연달아 4개 이상 이어지지 않는다.</div>
+    </div>
+    <p class="problem-text">
+      예를 들어, <i>baaacca</i>, <i>ccbbaaa</i>는 조건을 만족시키는 문자열이고
+      <i>aabbcca</i>, <i>aaabccc</i>, <i>ccbaaaa</i>는 조건을 만족시키지 않는 문자열이다.
+      만들 수 있는 모든 문자열의 개수를 구하시오. <span class="muted">[4점]</span>
+    </p>
   </div>
 
-  <div class="upload-area" id="solution-upload-area">
+  <div class="upload-area" id="solution-upload-area" role="button" tabindex="0">
     <div class="upload-icon">📷</div>
     <div class="upload-label">풀이를 촬영해주세요</div>
-    <div class="muted">종이에 풀이를 쓴 후 사진을 찍어주세요</div>
+    <div class="muted">종이에 푼 다음 사진을 찍거나 앨범에서 골라주세요</div>
   </div>
-  <input type="file" id="solution-file-input" accept="image/*" capture="environment">
+  <input type="file" id="solution-file-input" accept="image/*">
 
   <div id="solution-preview" style="display:none">
     <div class="photo-wrap">
-      <img id="solution-preview-img">
+      <img id="solution-preview-img" alt="올린 풀이 사진">
       <div class="badge solution">내 풀이</div>
     </div>
     <div class="btn-row">
-      <button class="btn-secondary" onclick="retakePhoto()">다시 촬영</button>
-      <button class="btn-primary" onclick="submitSolution()">제출하기</button>
+      <button class="btn-secondary" id="retake-btn">다시 고르기</button>
+      <button class="btn-primary" id="submit-btn">제출하기</button>
     </div>
   </div>
+
+  <div class="submit-error" id="submit-error" role="alert"></div>
+  <p class="footnote">올린 사진은 채점에만 쓰이고 저장되지 않습니다.</p>
 </div>
 
-<!-- ════════════ PROCESSING (채점 중) ════════════ -->
+<!-- ════════════ 채점 중 ════════════ -->
 <div id="screen-processing" class="screen">
   <div class="center-msg">
     <div class="spinner-lg"></div>
-    <h2 id="processing-title">채점 중입니다</h2>
-    <div class="muted" id="processing-desc">사진을 인식하고 채점하고 있습니다...</div>
+    <h2>채점하고 있어요</h2>
+    <div class="muted">사진을 읽고 처음 틀린 줄을 찾는 중입니다</div>
     <div class="processing-steps">
-      <div class="proc-step" id="proc-ocr"><span class="proc-dot active"></span> OCR 인식</div>
-      <div class="proc-step" id="proc-grade"><span class="proc-dot"></span> 채점 분석</div>
-      <div class="proc-step" id="proc-hint"><span class="proc-dot"></span> 힌트 생성</div>
+      <div class="proc-step" id="proc-ocr"><span class="proc-dot"></span> 손글씨 읽기</div>
+      <div class="proc-step" id="proc-grade"><span class="proc-dot"></span> 처음 틀린 줄 찾기</div>
+      <div class="proc-step" id="proc-hint"><span class="proc-dot"></span> 힌트 준비</div>
     </div>
   </div>
 </div>
 
-<!-- ════════════ RESULT (채점 결과 + 힌트) ════════════ -->
+<!-- ════════════ 채점 결과 + 힌트 ════════════ -->
 <div id="screen-result" class="screen">
   <div class="nav">
-    <button class="nav-btn" onclick="go('home')">목록</button>
+    <button class="nav-btn" id="result-back-btn">문제</button>
     <div class="nav-title">채점 결과</div>
-    <div style="width:54px"></div>
+    <div class="nav-spacer"></div>
   </div>
-
-  <div id="result-content">
-    <!-- 동적 생성 -->
-  </div>
+  <div id="result-content"></div>
 </div>
 
-<!-- ════════════ SOLUTION VIEW (해설 보기) ════════════ -->
+<!-- ════════════ 해설 ════════════ -->
 <div id="screen-solution" class="screen">
   <div class="nav">
-    <button class="nav-btn" onclick="go('result')">뒤로</button>
-    <div class="nav-title">해설 보기</div>
-    <div style="width:54px"></div>
+    <button class="nav-btn" id="solution-back-btn">결과</button>
+    <div class="nav-title">해설</div>
+    <div class="nav-spacer"></div>
   </div>
-  <div id="solution-loading" class="center-msg">
-    <div class="spinner-lg"></div>
-    <h2>해설 생성 중</h2>
-    <div class="muted">잠시만 기다려주세요...</div>
+
+  <div class="meta-row">
+    <div class="chip">경우 나누기</div>
+    <div class="chip accent">정답 188</div>
   </div>
-  <div id="solution-content" style="display:none"></div>
+
+  <div class="card sol-case">
+    <div class="card-title">1. <i>aaa</i>가 양 끝에 오는 경우</div>
+    <div class="sol-pattern"><i>aaa</i>□□□□ 또는 □□□□<i>aaa</i> <span class="muted">(서로 대칭)</span></div>
+    <p class="muted"><i>aaa</i> 바로 옆 자리에는 <i>b</i> 또는 <i>c</i>가 와야 합니다.</p>
+
+    <div class="sol-step">
+      <div class="sol-step-title">① <i>a</i>가 5개</div>
+      <div>남은 세 자리 중 <i>a</i>가 들어갈 두 자리를 고르고, 나머지 한 자리는 <i>b</i> 또는 <i>c</i></div>
+      <div class="formula-box">2 × ₃C₂ × 2 = 12</div>
+    </div>
+    <div class="sol-step">
+      <div class="sol-step-title">② <i>a</i>가 4개</div>
+      <div>남은 세 자리 중 <i>a</i>가 들어갈 한 자리를 고르고, 나머지 두 자리는 <i>b</i> 또는 <i>c</i>.
+        <i>aaabbba</i>처럼 <i>bbb</i>(<i>ccc</i>)가 생기는 1가지는 뺍니다.</div>
+      <div class="formula-box">2 × (₃C₁ × 2 × 2 − 1) = 22</div>
+    </div>
+    <div class="sol-step">
+      <div class="sol-step-title">③ <i>a</i>가 3개</div>
+      <div>뒤 네 자리를 <i>b</i>, <i>c</i>로만 채우고, <i>aaabbbb</i>, <i>aaabbbc</i>, <i>aaabccc</i>처럼
+        <i>bbb</i>나 <i>ccc</i>가 생기는 경우를 뺍니다.</div>
+      <div class="formula-box">2⁴ − 2 × 3 = 10</div>
+    </div>
+    <div class="sol-sum">12 + 22 + 10 = 44, 양 끝 두 경우이므로 44 × 2 = <b>88</b></div>
+  </div>
+
+  <div class="card sol-case">
+    <div class="card-title">2. <i>aaa</i>가 가운데 오는 경우</div>
+    <p class="muted"><i>aaa</i> 양옆은 모두 <i>b</i> 또는 <i>c</i>입니다.</p>
+
+    <div class="sol-step">
+      <div class="sol-step-title">① □<i>aaa</i>□□□</div>
+      <div>마지막 세 자리가 <i>bbb</i>, <i>ccc</i>가 되는 경우를 뺍니다.</div>
+      <div class="formula-box">2 × 2 × (3² − 1) = 32</div>
+    </div>
+    <div class="sol-step">
+      <div class="sol-step-title">② □□<i>aaa</i>□□</div>
+      <div><i>aaa</i> 바로 옆 두 자리는 <i>b</i> 또는 <i>c</i>, 맨 앞과 맨 뒤는 아무 문자나 올 수 있습니다.</div>
+      <div class="formula-box">2 × 2 × 3 × 3 = 36</div>
+    </div>
+    <div class="sol-step">
+      <div class="sol-step-title">③ □□□<i>aaa</i>□</div>
+      <div>①과 대칭입니다.</div>
+      <div class="formula-box">32</div>
+    </div>
+    <div class="sol-sum">32 + 36 + 32 = <b>100</b></div>
+  </div>
+
+  <div class="answer-line">88 + 100 = <b>188</b></div>
+
+  <div class="btn-row">
+    <button class="btn-primary" id="solution-retry-btn">다시 풀어보기</button>
+  </div>
 </div>
 
-<script src="/js/app.js"></script>
+<script src="/js/demo.js"></script>
 </body>
 </html>

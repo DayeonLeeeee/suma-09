@@ -51,7 +51,7 @@ const $ = id => document.getElementById(id);
 
 // ─── 화면 전환 + 휴대폰 뒤로가기 ─────────────────────
 const TRANSIENT = new Set(["reading", "processing"]);   // 뒤로가기로 돌아오지 않는 화면
-const NEEDS_PROBLEM = new Set(["confirm", "solve", "check", "result", "solution"]);
+const NEEDS_PROBLEM = new Set(["confirm", "solve", "draw", "check", "result", "solution"]);
 
 function show(screen) {
   if (S.screen === "camera" && screen !== "camera") stopCamera();
@@ -95,6 +95,7 @@ window.addEventListener("popstate", e => {
   show(target);
   if (target === "camera") startCamera();
   if (target === "check") growAllLines();
+  if (target === "draw") requestAnimationFrame(() => pad.layout());
 });
 history.replaceState({ screen: "home" }, "");
 
@@ -445,21 +446,227 @@ $("submit-btn").addEventListener("click", readSolution);
 
 function setSolutionPhoto(dataUrl) {
   S.solutionPhoto = dataUrl;
+  S.solutionSource = "photo";
   S.lines = [];
   $("solution-preview-img").src = dataUrl;
   $("solution-preview").hidden = false;
-  $("solution-upload-area").hidden = true;
+  $("solve-choices").hidden = true;
   $("solve-problem-wrap").open = false;
   setText("submit-error", "");
 }
 
 function resetSolutionPhoto() {
   S.solutionPhoto = null;
+  S.solutionSource = null;
   S.lines = [];
   $("solution-preview").hidden = true;
-  $("solution-upload-area").hidden = false;
+  $("solve-choices").hidden = false;
   $("solve-problem-wrap").open = true;
+  pad.reset();
 }
+
+// ─── 풀이 쓰기 (화면에 직접) ─────────────────────────
+// 획(stroke)을 좌표 목록으로 저장해 두고 다시 그린다 → 되돌리기·지우개·공간 늘리기가 쉬움
+const pad = {
+  canvas: $("draw-canvas"),
+  strokes: [],         // [{points: [[x, y], ...], width}]  (CSS px 좌표)
+  undo: [],            // strokes 스냅샷
+  tool: "pen",
+  current: null,
+  height: 0,
+  ready: false,
+
+  reset() {
+    this.strokes = [];
+    this.undo = [];
+    this.current = null;
+    this.height = 0;
+    this.ready = false;
+    this.setTool("pen");
+    this.updateEmpty();
+  },
+
+  layout() {
+    const scroll = $("draw-scroll");
+    const w = $("draw-paper").clientWidth;
+    if (!w) return;
+    if (!this.height) this.height = Math.max(scroll.clientHeight - 70, 560);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.canvas.style.width = w + "px";
+    this.canvas.style.height = this.height + "px";
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(this.height * dpr);
+    const ctx = this.canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ready = true;
+    this.redraw();
+  },
+
+  redraw() {
+    const ctx = this.canvas.getContext("2d");
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    for (const s of this.strokes) this.drawStroke(ctx, s);
+    this.updateEmpty();
+  },
+
+  drawStroke(ctx, s) {
+    const p = s.points;
+    ctx.strokeStyle = "#1A1814";
+    ctx.fillStyle = "#1A1814";
+    ctx.lineWidth = s.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (p.length === 1) {
+      ctx.beginPath(); ctx.arc(p[0][0], p[0][1], s.width / 2, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(p[0][0], p[0][1]);
+    for (let i = 1; i < p.length - 1; i++) {      // 중간점을 이어 부드럽게
+      const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2;
+      ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my);
+    }
+    const last = p[p.length - 1];
+    ctx.lineTo(last[0], last[1]);
+    ctx.stroke();
+  },
+
+  snapshot() {
+    this.undo.push(this.strokes.map(s => ({ ...s, points: s.points.slice() })));
+    if (this.undo.length > 60) this.undo.shift();
+  },
+
+  pos(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  },
+
+  eraseAt(x, y) {
+    const r = 14;
+    const before = this.strokes.length;
+    this.strokes = this.strokes.filter(s => !s.points.some(([px, py]) => (px - x) ** 2 + (py - y) ** 2 < r * r));
+    if (this.strokes.length !== before) this.redraw();
+  },
+
+  setTool(tool) {
+    this.tool = tool;
+    document.querySelectorAll(".draw-tools [data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === tool));
+    this.canvas.classList.toggle("move", tool === "move");
+  },
+
+  updateEmpty() {
+    $("draw-empty").hidden = this.strokes.length > 0;
+  },
+
+  // 쓴 부분만 잘라 흰 바탕 그림으로 (OCR용)
+  exportImage() {
+    if (!this.strokes.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of this.strokes) for (const [x, y] of s.points) {
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    const margin = 28;
+    x0 = Math.max(0, x0 - margin); y0 = Math.max(0, y0 - margin); x1 += margin; y1 += margin;
+    const k = Math.min(2, MAX_SIDE / Math.max(x1 - x0, y1 - y0));
+    const out = document.createElement("canvas");
+    out.width = Math.round((x1 - x0) * k);
+    out.height = Math.round((y1 - y0) * k);
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
+    for (const s of this.strokes) this.drawStroke(ctx, { ...s, width: Math.max(s.width, 3) });
+    return out.toDataURL("image/jpeg", 0.92);
+  },
+};
+
+pad.canvas.addEventListener("pointerdown", e => {
+  if (pad.tool === "move") return;
+  e.preventDefault();
+  pad.canvas.setPointerCapture(e.pointerId);
+  pad.snapshot();
+  const [x, y] = pad.pos(e);
+  if (pad.tool === "eraser") {
+    pad.current = { erasing: true };
+    pad.eraseAt(x, y);
+  } else {
+    const width = e.pointerType === "pen" ? 2.2 + 2 * (e.pressure || 0.5) : 3;
+    pad.current = { points: [[x, y]], width };
+    pad.strokes.push(pad.current);
+    pad.redraw();
+  }
+  setText("draw-error", "");
+});
+pad.canvas.addEventListener("pointermove", e => {
+  if (!pad.current) return;
+  e.preventDefault();
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of events.length ? events : [e]) {
+    const [x, y] = pad.pos(ev);
+    if (pad.current.erasing) pad.eraseAt(x, y);
+    else pad.current.points.push([x, y]);
+  }
+  if (!pad.current.erasing) {
+    const ctx = pad.canvas.getContext("2d");
+    const p = pad.current.points;
+    ctx.strokeStyle = "#1A1814"; ctx.lineWidth = pad.current.width; ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(...p[Math.max(0, p.length - events.length - 1)]);
+    for (let i = Math.max(1, p.length - events.length); i < p.length; i++) ctx.lineTo(...p[i]);
+    ctx.stroke();
+  }
+});
+for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
+  pad.canvas.addEventListener(type, () => {
+    if (!pad.current) return;
+    const wasErasing = pad.current.erasing;
+    pad.current = null;
+    if (!wasErasing) pad.redraw();       // 부드러운 곡선으로 다시 그림
+  });
+}
+
+document.querySelectorAll(".draw-tools [data-tool]").forEach(b =>
+  b.addEventListener("click", () => pad.setTool(b.dataset.tool)));
+$("draw-undo").addEventListener("click", () => {
+  if (!pad.undo.length) return;
+  pad.strokes = pad.undo.pop();
+  pad.redraw();
+});
+$("draw-clear").addEventListener("click", () => {
+  if (!pad.strokes.length) return;
+  pad.snapshot();
+  pad.strokes = [];
+  pad.redraw();
+});
+$("draw-more").addEventListener("click", () => {
+  pad.height += 360;
+  pad.layout();
+  $("draw-scroll").scrollBy({ top: 320, behavior: "smooth" });
+});
+$("draw-problem-btn").addEventListener("click", () => {
+  $("draw-problem-body").innerHTML = `<div class="card problem-card">${problemHtml()}</div>`;
+  $("draw-problem").hidden = false;
+});
+$("draw-problem-close").addEventListener("click", () => { $("draw-problem").hidden = true; });
+window.addEventListener("resize", () => { if (S.screen === "draw") pad.layout(); });
+
+$("draw-btn").addEventListener("click", openDraw);
+
+function openDraw() {
+  setText("draw-error", "");
+  $("draw-problem").hidden = true;
+  go("draw");
+  requestAnimationFrame(() => pad.layout());
+}
+
+$("draw-done").addEventListener("click", () => {
+  const img = pad.exportImage();
+  if (!img) { setText("draw-error", "아직 쓴 풀이가 없어요. 풀이를 쓴 다음 눌러주세요."); return; }
+  S.solutionPhoto = img;
+  S.solutionSource = "draw";
+  S.lines = [];
+  readSolution();
+});
 
 // ─── 풀이 읽기 (OCR) → 줄별 확인·수정 ────────────────
 async function postJson(path, body) {
@@ -478,8 +685,10 @@ async function postJson(path, body) {
 
 async function readSolution() {
   if (!S.solutionPhoto || S.busy) return;
+  const origin = S.screen;               // 실패하면 돌아갈 화면 (풀이 제출 또는 풀이 쓰기)
+  const errorBox = origin === "draw" ? "draw-error" : "submit-error";
   S.busy = true;
-  setText("submit-error", "");
+  setText(errorBox, "");
   startReading(S.solutionPhoto, "solution");
   go("reading");
   const t0 = performance.now();
@@ -501,17 +710,24 @@ async function readSolution() {
     growAllLines();
   } catch (e) {
     S.busy = false;
-    S.stack[S.stack.length - 1] = "solve";
-    show("solve");
-    history.replaceState({ screen: "solve" }, "");
-    setText("submit-error", `풀이를 읽지 못했습니다. ${e.message} 사진이 흐리면 다시 찍어서, 아니면 잠시 뒤에 다시 시도해주세요.`);
+    S.stack[S.stack.length - 1] = origin;
+    show(origin);
+    history.replaceState({ screen: origin }, "");
+    if (origin === "draw") requestAnimationFrame(() => pad.layout());
+    setText(errorBox, origin === "draw"
+      ? `풀이를 읽지 못했습니다. ${e.message} 글씨를 조금 크게 써서 다시 눌러주세요.`
+      : `풀이를 읽지 못했습니다. ${e.message} 사진이 흐리면 다시 찍어서, 아니면 잠시 뒤에 다시 시도해주세요.`);
   }
 }
 
 function renderCheck(seconds) {
+  const drawn = S.solutionSource === "draw";
   $("check-img").src = S.solutionPhoto;
   $("check-time").textContent = `${seconds.toFixed(1)}초`;
   $("check-photo-wrap").open = false;
+  document.querySelector("#check-photo-wrap summary").textContent = drawn ? "내가 쓴 풀이" : "찍은 풀이 사진";
+  $("check-back").textContent = drawn ? "‹ 쓰기" : "‹ 사진";
+  $("check-retake-btn").textContent = drawn ? "다시 쓰기" : "다시 찍기";
   setText("check-error", "");
   renderLines();
 }
@@ -539,6 +755,11 @@ $("add-line-btn").addEventListener("click", () => {
   inputs[inputs.length - 1].focus();
 });
 $("check-retake-btn").addEventListener("click", () => {
+  if (S.solutionSource === "draw") {   // 확인 → 쓰던 화면 그대로 (이어서 고치기)
+    S.lines = [];
+    history.back();
+    return;
+  }
   resetSolutionPhoto();
   history.back();                      // 확인 → 풀이 제출 화면
 });

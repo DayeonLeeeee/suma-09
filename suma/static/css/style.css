@@ -478,3 +478,59 @@ details.fold[open] summary{margin-bottom:10px}
   font-size:13px;font-weight:800;color:var(--ink2);background:transparent;
 }
 .rec-solve{width:100%;margin-top:12px}
+
+/* 풀이 올리기: 쓰기 / 찍기 */
+.section-title.small{font-size:14px;margin:4px 0 8px}
+.choice-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upload-area.choice{margin:0;padding:24px 10px}
+.upload-area.choice .muted{font-size:12px}
+
+/* 풀이 쓰기 */
+.screen.draw{position:fixed;inset:0;z-index:40;padding:0;background:var(--bg);overflow:hidden}
+.screen.draw.active{display:flex;flex-direction:column}
+.draw-top{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;
+  padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));
+}
+.draw-scroll{
+  flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:0 max(12px,env(safe-area-inset-right,0px)) 16px max(12px,env(safe-area-inset-left,0px));
+}
+.draw-paper{
+  position:relative;background-color:#fff;border:1px solid var(--hair);border-radius:var(--radius);overflow:hidden;
+  background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 55px,#E4ECF5 55px,#E4ECF5 56px);
+  background-position:0 20px;
+}
+#draw-canvas{display:block;touch-action:none;cursor:crosshair}
+#draw-canvas.move{touch-action:pan-y;cursor:grab}
+.draw-empty{
+  position:absolute;left:0;right:0;top:120px;text-align:center;pointer-events:none;
+  color:var(--ink3);font-size:15px;font-weight:700;line-height:1.7;
+}
+.draw-empty span{font-size:12px;font-weight:600}
+.draw-tools{
+  flex-shrink:0;display:flex;align-items:center;gap:4px;overflow-x:auto;
+  padding:8px max(10px,env(safe-area-inset-right,0px)) 6px max(10px,env(safe-area-inset-left,0px));
+  border-top:1px solid var(--hair);background:var(--surface);
+}
+.tool{
+  min-width:58px;min-height:52px;padding:4px 6px;border-radius:12px;flex-shrink:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font-size:11px;font-weight:800;color:var(--ink2);
+}
+.tool.on{background:var(--ink0);color:#fff}
+.tool:active{background:var(--hair2)}
+.tool.on:active{background:var(--ink0)}
+.tool-gap{flex:1;min-width:6px}
+.draw-bottom{
+  flex-shrink:0;background:var(--surface);
+  padding:4px max(16px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+}
+.draw-bottom .btn-primary{width:100%}
+.draw-bottom .submit-error:empty{min-height:0;margin:0}
+.draw-problem{
+  position:absolute;z-index:5;left:0;right:0;top:0;max-height:80%;overflow-y:auto;
+  background:var(--bg);border-bottom:1px solid var(--hair);box-shadow:0 10px 30px rgba(13,11,8,.18);
+  padding:calc(16px + env(safe-area-inset-top,0px)) 16px 16px;
+}
+.draw-problem .btn-secondary{width:100%;margin-top:12px}

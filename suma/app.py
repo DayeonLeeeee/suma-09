@@ -305,6 +305,20 @@ def is_demo_problem(problem_text: str, problem_key: str = "") -> bool:
     return sum(1 for c in DEMO_CLUES if c in t) >= DEMO_CLUE_THRESHOLD
 
 
+# 받은 고정 풀이 (화면 해설과 같은 내용) — 채점·힌트·'내 풀이와 비교'의 기준
+DEMO_REFERENCE_SOLUTION = """aaa 블록의 위치로 경우를 나눈다. aaa 바로 옆에는 b 또는 c가 와야 한다.
+1. aaa가 양 끝 (aaa____ 또는 ____aaa, 대칭)
+  a가 5개: 2 × 3C2 × 2 = 12
+  a가 4개: 2 × (3C1 × 2 × 2 − 1) = 22  (aaabbba처럼 bbb가 생기는 경우 제외)
+  a가 3개: 2^4 − 2 × 3 = 10  (bbb, ccc가 생기는 경우 제외)
+  44 × 2 = 88
+2. aaa가 가운데
+  _aaa___: 2 × 2 × (3^2 − 1) = 32
+  __aaa__: 2 × 2 × 3 × 3 = 36
+  ___aaa_: 32 (대칭)
+  합 100
+답: 88 + 100 = 188"""
+
 DEMO_GRADING_BLOCK = """[이 문제 전용 채점 지침 — 시연 문제]
 
 [조건 해석 — 채점 기준]
@@ -314,20 +328,10 @@ DEMO_GRADING_BLOCK = """[이 문제 전용 채점 지침 — 시연 문제]
 - (나) 어떤 문자도 4개 이상 연속되면 안 된다. → aaa 바로 옆 칸에는 a가 올 수 없다(b 또는 c).
 - a가 5개 이하이므로 aaa 묶음은 정확히 하나만 생긴다 (aaa?aaa는 a가 6개).
 
-[기준 풀이 — 채점 전용, 학생에게 노출 금지. 학생이 나중에 보는 해설과 같은 흐름]
-aaa 묶음의 위치로 경우를 나눈다.
-1. aaa가 양 끝 (aaa____ 또는 ____aaa, 대칭)
-   aaa 옆 칸은 b 또는 c. 나머지 세 자리에 들어가는 a의 개수로 나눈다.
-   - a가 5개: 2 × 3C2 × 2 = 12
-   - a가 4개: 2 × (3C1 × 2 × 2 − 1) = 22  (aaabbba처럼 bbb가 생기는 경우 제외)
-   - a가 3개: 2^4 − 2 × 3 = 10  (bbb, ccc가 생기는 경우 제외)
-   - 한쪽 끝 44, 양 끝 44 × 2 = 88
-2. aaa가 가운데
-   - _aaa___: 2 × 2 × (3^2 − 1) = 32
-   - __aaa__: 2 × 2 × 3 × 3 = 36
-   - ___aaa_: 32 (대칭)
-   - 합 100
-3. 답: 88 + 100 = 188
+[기준 풀이 — 받은 고정 풀이. 채점 전용, 학생에게 그대로 노출 금지. 학생이 나중에 보는 해설과 같은 내용]
+판정·오답유형·힌트·solution_note는 모두 이 풀이를 기준으로 작성하세요.
+(양 끝의 a 개수 경우는 나머지 세 자리에 들어가는 a의 개수로 나눈 것이며, a가 6개가 되는 aaa?aaa는 처음부터 제외된다.)
+@@REFERENCE@@
 
 [다른 풀이 허용]
 - 위치를 다섯 가지(1~3, 2~4, 3~5, 4~6, 5~7번째)로 바로 나누고, 양 끝에서 나머지 세 자리 27가지 중
@@ -408,7 +412,7 @@ JSON에 아래 두 키를 함께 넣으세요.
 - "solution_note": 해설 화면 맨 위에 보일 1~2문장. 학생 풀이의 처음 틀린 줄과 해설의 해당 구간을 비교해
   무엇이 달랐는지 말하세요(예: "내 풀이는 양 끝 경우에서 a가 6개 되는 문자열을 빼지 않았어요. 해설 ③을 보세요.").
   이 문장은 해설과 함께 보이므로 해설의 수치를 써도 됩니다. 정답이면 학생 풀이 방식과 해설 방식을 한 문장으로 비교하세요.
-"""
+""".replace("@@REFERENCE@@", DEMO_REFERENCE_SOLUTION)
 
 DEMO_SOLUTION_SECTIONS = {"split", "end5", "end4", "end3", "end_sum", "mid1", "mid2", "mid3", "mid_sum", "total"}
 
@@ -704,6 +708,34 @@ def call_gemini_ocr(image_b64, mime_type, mode="problem"):
 # API 엔드포인트
 # ═══════════════════════════════════════════════════
 
+def _bank_by_key():
+    return {f"{p['set']}-{p['num']}": p for p in TEMP_PROBLEMS}
+
+
+def bank_answer(problem_key):
+    """문제 은행 문항이면 저장된 정답 (없으면 빈 문자열 → 채점 AI가 직접 풀어 확인)."""
+    p = _bank_by_key().get(problem_key or "")
+    return (p or {}).get("answer", "") or ""
+
+
+@app.route("/api/problems", methods=["GET"])
+def problems_endpoint():
+    """홈 화면 문제 목록. 정답은 내려보내지 않는다 (채점 때 서버가 problem_key로 찾음)."""
+    level_names = {1: "기본", 2: "중간", 3: "심화"}
+    items = []
+    for p in sorted(TEMP_PROBLEMS, key=lambda p: (p["set"].rstrip("2"), len(p["set"]), p["num"])):
+        text = p["text"]
+        m = re.match(r"\[([^\]]+)\]\s*", text)
+        source = m.group(1) if m else ""
+        items.append({
+            "key": f"{p['set']}-{p['num']}",
+            "source": source,
+            "text": text[m.end():] if m else text,
+            "level": level_names.get(_rec_level_from_text(text), "중간"),
+        })
+    return jsonify({"success": True, "problems": items})
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "version": PROMPT_VERSION, "time": str(datetime.datetime.now())})
@@ -753,9 +785,9 @@ def grade_endpoint():
         problem_text = data.get("problem_text", "")
         solution_steps = data.get("solution_steps", [])
         problem_latex = data.get("problem_latex", "")
-        correct_answer = data.get("correct_answer", "")
-        reference_solution = data.get("reference_solution", "")
         problem_key = data.get("problem_key", "")
+        correct_answer = data.get("correct_answer", "") or bank_answer(problem_key)
+        reference_solution = data.get("reference_solution", "")
 
         clean_problem = problem_latex or problem_text
         clean_steps = "\n".join([f"Step {s['index']}: {s['text']}" for s in solution_steps])
@@ -818,8 +850,8 @@ def solution_endpoint():
             result["problem_key"] = DEMO_KEY
             return jsonify(result)
 
-        # 1) 정답: 클라이언트에서 받거나 Claude로 계산
-        correct_answer = data.get("correct_answer", "")
+        # 1) 정답: 클라이언트에서 받거나, 문제 은행에 있으면 그 값, 없으면 Claude로 계산
+        correct_answer = data.get("correct_answer", "") or bank_answer(data.get("problem_key", ""))
         if not correct_answer:
             try:
                 ans_msg = claude_client.messages.create(
@@ -848,17 +880,29 @@ JSON으로만 응답:
             except Exception:
                 pass
 
-        # 2) GPT-4o 풀이 작성
-        gpt_resp = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "고1 순열·조합 단원의 정확한 풀이 생성기. 6종 교과서 교집합 범위의 개념만 사용하여, 주어진 정답으로 정확히 수렴하는 풀이를 만듭니다."},
-                {"role": "user", "content": build_solution_prompt(the_problem, correct_answer)},
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=4096, temperature=0.1,
-        )
-        gpt_result = json.loads(gpt_resp.choices[0].message.content)
+        # 2) 풀이 작성: GPT-4o (OpenAI 키가 없거나 실패하면 Claude가 작성)
+        gen_system = "고1 순열·조합 단원의 정확한 풀이 생성기. 6종 교과서 교집합 범위의 개념만 사용하여, 주어진 정답으로 정확히 수렴하는 풀이를 만듭니다."
+        gpt_result = None
+        if openai_client:
+            try:
+                gpt_resp = openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": gen_system},
+                        {"role": "user", "content": build_solution_prompt(the_problem, correct_answer)},
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=4096, temperature=0.1,
+                )
+                gpt_result = json.loads(gpt_resp.choices[0].message.content)
+            except Exception as gen_err:
+                print(f"[Solution] GPT-4o fail → Claude: {gen_err}")
+        if gpt_result is None:
+            gen_msg = claude_client.messages.create(
+                model="claude-opus-4-6", max_tokens=4096, temperature=0.0, system=gen_system,
+                messages=[{"role": "user", "content": build_solution_prompt(the_problem, correct_answer)}],
+            )
+            gpt_result = parse_json_loose(gen_msg.content[0].text)
         if correct_answer and str(gpt_result.get("answer", "")).strip() != correct_answer:
             gpt_result["answer"] = correct_answer
 

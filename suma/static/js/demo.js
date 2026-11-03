@@ -1,8 +1,10 @@
 /* ═══════════════════════════════════════════════════
    suma 시연 페이지
-   홈 → 문제 촬영(사이트 안 카메라) → Gemini Flash OCR → 문제 확인
-      → 풀이 촬영 → 채점 → 결과·힌트 3단계 → 해설(내 풀이와 비교)
-   찍은 문제가 30번으로 인식되면 정돈된 문제·전용 채점·검증된 해설을 쓴다.
+   홈(문제 촬영 · 문제 골라 풀기)
+   → 문제 촬영(사이트 안 카메라) → Gemini Flash OCR → 문제 확인·글자 고치기
+   → 풀이 촬영 → Gemini Flash OCR → 풀이 줄별 확인·수정
+   → 채점 → 결과·힌트 3단계 → 해설(내 풀이와 비교)
+   찍은 문제가 30번으로 인식되면 정돈된 문제 · 받은 고정 풀이 기준 채점 · 고정 해설을 쓴다.
    DB에는 아무것도 저장하지 않는다.
    ═══════════════════════════════════════════════════ */
 
@@ -15,20 +17,25 @@ const DEMO_TEXT = [
   "(나) 어느 한 문자도 연달아 4개 이상 이어지지 않는다.",
   "예를 들어, baaacca, ccbbaaa는 조건을 만족시키는 문자열이고 aabbcca, aaabccc, ccbaaaa는 조건을 만족시키지 않는 문자열이다. 만들 수 있는 모든 문자열의 개수를 구하시오.",
 ].join("\n");
+// 서버 is_demo_problem 과 같은 단서 (글자를 고친 뒤에도 30번인지 판별)
+const DEMO_CLUES = ["7자리", "문자열", "연달아", "뿐이다", "4개이상", "5개이하", "중복을허락",
+  "baaacca", "ccbbaaa", "aabbcca", "aaabccc", "ccbaaaa"];
 const MAX_SIDE = 1600;   // 업로드 전 사진 긴 변 (px)
 
 const S = {
   screen: "home",
+  stack: ["home"],     // 브라우저 기록과 같은 순서의 화면 목록
   busy: false,
-  problem: null,      // {photo, text, isDemo, ocrSeconds}
+  problem: null,       // {text, isDemo, key, photo, source, ocrSeconds, edited}
   solutionPhoto: null,
+  lines: [],           // 읽은 풀이 줄 (수정 가능)
   attempts: 0,
-  history: [],        // 이 문제에서 제출한 결과 [{error_category, is_correct}]
-  grade: null,        // 마지막 채점 결과
-  gradedSteps: [],
+  history: [],         // 이 문제에서 제출한 결과 [{error_category, is_correct}]
+  grade: null,
   hints: [],
   hintOpen: 0,
   solutionCache: null,
+  bank: [],
 };
 
 const ERROR_TYPE_NAMES = {
@@ -44,7 +51,7 @@ const $ = id => document.getElementById(id);
 
 // ─── 화면 전환 + 휴대폰 뒤로가기 ─────────────────────
 const TRANSIENT = new Set(["reading", "processing"]);   // 뒤로가기로 돌아오지 않는 화면
-const NEEDS_PROBLEM = new Set(["confirm", "solve", "result", "solution"]);
+const NEEDS_PROBLEM = new Set(["confirm", "solve", "check", "result", "solution"]);
 
 function show(screen) {
   if (S.screen === "camera" && screen !== "camera") stopCamera();
@@ -56,9 +63,21 @@ function show(screen) {
 
 function go(screen, { replace = false } = {}) {
   show(screen);
-  const state = { screen };
-  if (replace) history.replaceState(state, "");
-  else history.pushState(state, "");
+  if (replace) {
+    S.stack[S.stack.length - 1] = screen;
+    history.replaceState({ screen }, "");
+  } else {
+    S.stack.push(screen);
+    history.pushState({ screen }, "");
+  }
+}
+
+// 기록에서 가장 가까운 screen 까지 되돌아간다 (없으면 그 화면으로 이동)
+function backTo(screen) {
+  const i = S.stack.lastIndexOf(screen);
+  const n = i >= 0 ? S.stack.length - 1 - i : 0;
+  if (n > 0) history.go(-n);
+  else if (i < 0) go(screen);
 }
 
 window.addEventListener("popstate", e => {
@@ -67,11 +86,15 @@ window.addEventListener("popstate", e => {
     return;
   }
   let target = (e.state && e.state.screen) || "home";
+  const i = S.stack.lastIndexOf(target);
+  S.stack = i >= 0 ? S.stack.slice(0, i + 1) : [...S.stack, target];
   if (TRANSIENT.has(target)) target = "home";
   if (NEEDS_PROBLEM.has(target) && !S.problem) target = "home";
-  if (target === "result" && !S.grade) target = "solve";
+  if ((target === "result" || target === "solution") && !S.grade) target = "check";
+  if (target === "check" && !S.lines.length) target = "solve";
   show(target);
   if (target === "camera") startCamera();
+  if (target === "check") growAllLines();
 });
 history.replaceState({ screen: "home" }, "");
 
@@ -81,9 +104,69 @@ document.querySelectorAll("[data-home]").forEach(b => b.addEventListener("click"
 function newProblem() {
   S.problem = null;
   S.grade = null;
+  S.lines = [];
   resetSolutionPhoto();
   setText("home-error", "");
-  go("home");
+  backTo("home");
+}
+
+// ─── 홈: 문제 골라 풀기 ──────────────────────────────
+async function loadBank() {
+  try {
+    const resp = await fetch(API + "/problems");
+    const data = await resp.json();
+    if (!data.success) throw new Error();
+    S.bank = data.problems || [];
+  } catch (e) {
+    S.bank = [];
+  }
+  renderBank("");
+}
+
+function renderBank(level) {
+  const list = $("bank-list");
+  const items = [{ key: DEMO_KEY, source: "시연 문제 30번", level: "심화", text: DEMO_TEXT }, ...S.bank]
+    .filter(p => !level || p.level === level);
+  $("bank-count").textContent = `${S.bank.length + 1}문제`;
+  if (!items.length) {
+    list.innerHTML = `<div class="muted center bank-empty">이 난이도의 문제가 없습니다</div>`;
+    return;
+  }
+  list.innerHTML = items.map(p => `
+    <button class="bank-item" data-key="${esc(p.key)}">
+      <span class="bank-top">
+        <span class="bank-source">${esc(p.source || "문제 은행")}</span>
+        <span class="level-pill lv-${esc(p.level)}">${esc(p.level)}</span>
+      </span>
+      <span class="bank-text">${esc(plainMath(p.text).split(/[①\n]/)[0])}</span>
+    </button>`).join("");
+  list.querySelectorAll(".bank-item").forEach(btn =>
+    btn.addEventListener("click", () => startFromBank(btn.dataset.key)));
+}
+
+$("bank-filters").addEventListener("click", e => {
+  const btn = e.target.closest(".filter");
+  if (!btn) return;
+  document.querySelectorAll("#bank-filters .filter").forEach(f => f.classList.toggle("on", f === btn));
+  renderBank(btn.dataset.level);
+});
+
+function startFromBank(key) {
+  const p = key === DEMO_KEY ? { key, text: DEMO_TEXT, source: "시연 문제 30번" } : S.bank.find(b => b.key === key);
+  if (!p) return;
+  setProblem({ text: key === DEMO_KEY ? DEMO_TEXT : plainMath(p.text), isDemo: key === DEMO_KEY,
+               key: key === DEMO_KEY ? null : key, source: p.source });
+  openSolve();
+}
+
+function setProblem(p) {
+  S.problem = { photo: null, ocrSeconds: null, edited: false, ...p };
+  S.attempts = 0;
+  S.history = [];
+  S.grade = null;
+  S.lines = [];
+  S.solutionCache = null;
+  resetSolutionPhoto();
 }
 
 // ─── 카메라 ──────────────────────────────────────────
@@ -223,6 +306,22 @@ function captured(dataUrl) {
   }
 }
 
+// ─── 공통: 읽는 중 화면 ──────────────────────────────
+function startReading(dataUrl, kind) {
+  $("reading-img").src = dataUrl;
+  $("reading-title").textContent = kind === "problem" ? "문제를 읽고 있어요" : "풀이를 읽고 있어요";
+  $("reading-sub").textContent = kind === "problem"
+    ? "사진 속 글자와 수식을 텍스트로 바꾸는 중입니다"
+    : "손글씨 풀이를 한 줄씩 텍스트로 바꾸는 중입니다";
+  $("read-tidy-label").textContent = kind === "problem" ? "문제 정리" : "줄 나누기";
+  readStep("upload", "active"); readStep("ocr", ""); readStep("tidy", "");
+}
+
+function readStep(step, state) {
+  const dot = document.querySelector(`#read-${step} .proc-dot`);
+  dot.className = "proc-dot" + (state ? " " + state : "");
+}
+
 // ─── 문제 읽기 (Gemini Flash OCR) ────────────────────
 $("shoot-problem-btn").addEventListener("click", () => openCamera("problem"));
 $("album-problem-btn").addEventListener("click", () => {
@@ -233,10 +332,8 @@ $("album-problem-btn").addEventListener("click", () => {
 async function readProblem(dataUrl) {
   S.busy = true;
   setText("home-error", "");
-  $("reading-img").src = dataUrl;
-  readStep("upload", "active"); readStep("ocr", ""); readStep("tidy", "");
-  if (S.screen === "camera") go("reading", { replace: true });
-  else go("reading");
+  startReading(dataUrl, "problem");
+  go("reading", { replace: S.screen === "camera" });
   const t0 = performance.now();
 
   try {
@@ -249,32 +346,24 @@ async function readProblem(dataUrl) {
     const isDemo = ocr.problem_key === DEMO_KEY;
     if (!isDemo && !raw.trim()) throw new Error("사진에서 문제를 찾지 못했어요.");
 
-    S.problem = {
-      photo: dataUrl,
-      isDemo,
-      text: isDemo ? DEMO_TEXT : plainMath(raw),
-      ocrSeconds: (performance.now() - t0) / 1000,
-    };
-    S.attempts = 0;
-    S.history = [];
-    S.grade = null;
-    S.solutionCache = null;
-    resetSolutionPhoto();
+    setProblem({ photo: dataUrl, isDemo, key: null, text: isDemo ? DEMO_TEXT : plainMath(raw),
+                 ocrSeconds: (performance.now() - t0) / 1000 });
     readStep("tidy", "done");
     S.busy = false;
     renderConfirm();
     go("confirm", { replace: true });
   } catch (e) {
     S.busy = false;
+    S.stack[S.stack.length - 1] = "home";
     show("home");
     history.replaceState({ screen: "home" }, "");
     setText("home-error", `문제를 읽지 못했어요. ${e.message} 밝은 곳에서 문제가 잘 보이게 다시 찍어주세요.`);
   }
 }
 
-function readStep(step, state) {
-  const dot = document.querySelector(`#read-${step} .proc-dot`);
-  dot.className = "proc-dot" + (state ? " " + state : "");
+function looksDemo(text) {
+  const t = String(text || "").replace(/[\s$\\{}()'"]/g, "").toLowerCase();
+  return DEMO_CLUES.filter(c => t.includes(c)).length >= 4;
 }
 
 function plainMath(s) {
@@ -289,35 +378,74 @@ function plainMath(s) {
 }
 
 function problemHtml() {
-  if (S.problem.isDemo) return $("tpl-demo-problem").innerHTML;
-  return `<div class="problem-head"><span class="chip">찍은 문제</span></div>
-    <p class="problem-text pre">${esc(S.problem.text)}</p>`;
+  const p = S.problem;
+  if (p.isDemo && !p.edited) return $("tpl-demo-problem").innerHTML;
+  const tag = p.source ? esc(p.source) : (p.photo ? "찍은 문제" : "문제");
+  return `<div class="problem-head"><span class="chip">${tag}</span></div>
+    <p class="problem-text pre">${esc(p.text)}</p>`;
 }
 
 function renderConfirm() {
-  $("confirm-img").src = S.problem.photo;
+  const p = S.problem;
+  $("confirm-img").src = p.photo || "";
   $("confirm-problem").innerHTML = problemHtml();
-  $("confirm-time").textContent = `${S.problem.ocrSeconds.toFixed(1)}초`;
+  $("confirm-time").textContent = p.ocrSeconds != null ? `${p.ocrSeconds.toFixed(1)}초` : "";
+  $("confirm-unit").hidden = !p.isDemo;
+  closeProblemEdit();
+}
+
+// 문제 글자 고치기
+$("confirm-edit-btn").addEventListener("click", () => {
+  $("confirm-textarea").value = S.problem.text;
+  $("confirm-edit").hidden = false;
+  $("confirm-problem").hidden = true;
+  $("confirm-edit-hint").hidden = true;
+  autoGrow($("confirm-textarea"));
+  $("confirm-textarea").focus();
+});
+$("confirm-edit-cancel").addEventListener("click", closeProblemEdit);
+$("confirm-edit-save").addEventListener("click", () => {
+  const text = $("confirm-textarea").value.trim();
+  if (!text) return;
+  if (text !== S.problem.text) {
+    S.problem.text = text;
+    S.problem.edited = true;
+    S.problem.isDemo = S.problem.isDemo && looksDemo(text);
+  }
+  $("confirm-problem").innerHTML = problemHtml();
   $("confirm-unit").hidden = !S.problem.isDemo;
+  closeProblemEdit();
+});
+$("confirm-textarea").addEventListener("input", e => autoGrow(e.target));
+
+function closeProblemEdit() {
+  $("confirm-edit").hidden = true;
+  $("confirm-problem").hidden = false;
+  $("confirm-edit-hint").hidden = false;
 }
 
 $("confirm-retake-btn").addEventListener("click", () => {
+  S.stack[S.stack.length - 1] = "home";
   history.replaceState({ screen: "home" }, "");
   openCamera("problem");
 });
-$("confirm-ok-btn").addEventListener("click", () => {
+$("confirm-ok-btn").addEventListener("click", openSolve);
+
+function openSolve() {
   $("solve-problem").innerHTML = problemHtml();
+  document.querySelector("#screen-solve [data-back]").textContent = S.problem.photo ? "‹ 문제" : "‹ 목록";
   setText("submit-error", "");
   go("solve");
-});
+}
 
 // ─── 풀이 사진 ───────────────────────────────────────
 $("solution-upload-area").addEventListener("click", () => openCamera("solution"));
 $("retake-btn").addEventListener("click", () => openCamera("solution"));
-$("submit-btn").addEventListener("click", submitSolution);
+$("submit-btn").addEventListener("click", readSolution);
 
 function setSolutionPhoto(dataUrl) {
   S.solutionPhoto = dataUrl;
+  S.lines = [];
   $("solution-preview-img").src = dataUrl;
   $("solution-preview").hidden = false;
   $("solution-upload-area").hidden = true;
@@ -327,12 +455,13 @@ function setSolutionPhoto(dataUrl) {
 
 function resetSolutionPhoto() {
   S.solutionPhoto = null;
+  S.lines = [];
   $("solution-preview").hidden = true;
   $("solution-upload-area").hidden = false;
   $("solve-problem-wrap").open = true;
 }
 
-// ─── 제출 → 채점 ─────────────────────────────────────
+// ─── 풀이 읽기 (OCR) → 줄별 확인·수정 ────────────────
 async function postJson(path, body) {
   const resp = await fetch(API + path, {
     method: "POST",
@@ -347,35 +476,107 @@ async function postJson(path, body) {
   return data;
 }
 
-async function submitSolution() {
+async function readSolution() {
   if (!S.solutionPhoto || S.busy) return;
   S.busy = true;
   setText("submit-error", "");
-  go("processing");
-  procStep("ocr", "active"); procStep("grade", ""); procStep("hint", "");
+  startReading(S.solutionPhoto, "solution");
+  go("reading");
+  const t0 = performance.now();
 
   try {
-    const ocr = await postJson("/ocr", {
-      image: S.solutionPhoto.split(",")[1],
-      mime_type: "image/jpeg",
-      mode: "solution",
-    });
-    const steps = (ocr.steps && ocr.steps.length)
-      ? ocr.steps.map(s => ({ index: s.index, text: s.text }))
-      : [{ index: 1, text: ocr.final_text || "" }];
-    procStep("ocr", "done"); procStep("grade", "active");
+    const pending = postJson("/ocr", { image: S.solutionPhoto.split(",")[1], mime_type: "image/jpeg", mode: "solution" });
+    readStep("upload", "done"); readStep("ocr", "active");
+    const ocr = await pending;
+    readStep("ocr", "done"); readStep("tidy", "active");
+    const lines = (ocr.steps && ocr.steps.length)
+      ? ocr.steps.map(s => String(s.text || ""))
+      : String(ocr.final_text || "").split("\n");
+    S.lines = lines.map(t => t.trim()).filter(Boolean);
+    if (!S.lines.length) throw new Error("사진에서 풀이 글씨를 찾지 못했어요.");
+    readStep("tidy", "done");
+    S.busy = false;
+    renderCheck((performance.now() - t0) / 1000);
+    go("check", { replace: true });
+    growAllLines();
+  } catch (e) {
+    S.busy = false;
+    S.stack[S.stack.length - 1] = "solve";
+    show("solve");
+    history.replaceState({ screen: "solve" }, "");
+    setText("submit-error", `풀이를 읽지 못했습니다. ${e.message} 사진이 흐리면 다시 찍어서, 아니면 잠시 뒤에 다시 시도해주세요.`);
+  }
+}
 
+function renderCheck(seconds) {
+  $("check-img").src = S.solutionPhoto;
+  $("check-time").textContent = `${seconds.toFixed(1)}초`;
+  $("check-photo-wrap").open = false;
+  setText("check-error", "");
+  renderLines();
+}
+
+function renderLines() {
+  $("check-count").textContent = `${S.lines.length}줄`;
+  $("line-list").innerHTML = S.lines.map((t, i) => `
+    <div class="line-row">
+      <span class="line-no">${i + 1}</span>
+      <textarea class="line-input" data-i="${i}" rows="1" aria-label="${i + 1}번째 줄">${esc(t)}</textarea>
+      <button class="line-del" data-i="${i}" aria-label="${i + 1}번째 줄 지우기">×</button>
+    </div>`).join("");
+  $("line-list").querySelectorAll(".line-input").forEach(ta => {
+    autoGrow(ta);
+    ta.addEventListener("input", () => { S.lines[Number(ta.dataset.i)] = ta.value; autoGrow(ta); });
+  });
+  $("line-list").querySelectorAll(".line-del").forEach(btn =>
+    btn.addEventListener("click", () => { S.lines.splice(Number(btn.dataset.i), 1); renderLines(); }));
+}
+
+$("add-line-btn").addEventListener("click", () => {
+  S.lines.push("");
+  renderLines();
+  const inputs = $("line-list").querySelectorAll(".line-input");
+  inputs[inputs.length - 1].focus();
+});
+$("check-retake-btn").addEventListener("click", () => {
+  resetSolutionPhoto();
+  history.back();                      // 확인 → 풀이 제출 화면
+});
+$("grade-btn").addEventListener("click", gradeSolution);
+
+function autoGrow(el) {
+  if (!el.offsetParent) return;          // 화면에 보일 때만 높이를 잴 수 있다
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + 2 + "px";
+}
+
+function growAllLines() {
+  requestAnimationFrame(() => $("line-list").querySelectorAll(".line-input").forEach(autoGrow));
+}
+
+// ─── 채점 ────────────────────────────────────────────
+async function gradeSolution() {
+  if (S.busy) return;
+  const steps = S.lines.map(t => t.trim()).filter(Boolean).map((text, i) => ({ index: i + 1, text }));
+  if (!steps.length) { setText("check-error", "채점할 풀이 줄이 없어요. 줄을 추가하거나 다시 찍어주세요."); return; }
+  S.busy = true;
+  setText("check-error", "");
+  go("processing");
+  procStep("grade", "active"); procStep("type", ""); procStep("hint", "");
+
+  try {
     const body = { problem_text: S.problem.text, solution_steps: steps };
     if (S.problem.isDemo) {
       body.problem_key = DEMO_KEY;
       body.correct_answer = DEMO_ANSWER;
+    } else if (S.problem.key) {
+      body.problem_key = S.problem.key;    // 문제 은행 문항: 정답은 서버가 찾음
     }
     const result = await postJson("/grade", body);
-    procStep("grade", "done"); procStep("hint", "done");
+    procStep("grade", "done"); procStep("type", "done"); procStep("hint", "done");
 
     S.attempts += 1;
     S.grade = result;
-    S.gradedSteps = steps;
     const previous = S.history.slice();
     S.history.push({ error_category: result.error_category || null, is_correct: !!result.is_correct });
     S.busy = false;
@@ -386,9 +587,10 @@ async function submitSolution() {
     }
   } catch (e) {
     S.busy = false;
-    show("solve");
-    history.replaceState({ screen: "solve" }, "");
-    setText("submit-error", `제출하지 못했습니다. ${e.message} 사진이 흐리면 다시 찍어서, 아니면 잠시 뒤에 다시 제출해주세요.`);
+    S.stack[S.stack.length - 1] = "check";
+    show("check");
+    history.replaceState({ screen: "check" }, "");
+    setText("check-error", `채점하지 못했습니다. ${e.message} 잠시 뒤에 다시 눌러주세요.`);
   }
 }
 
@@ -480,32 +682,32 @@ function openHint(level) {
 function retry() {
   resetSolutionPhoto();
   setText("submit-error", "");
-  history.back();                      // 결과 → 풀이 제출 화면
+  backTo("solve");
 }
-$("solution-retry-btn").addEventListener("click", () => {
-  resetSolutionPhoto();
-  setText("submit-error", "");
-  history.go(-2);                      // 해설 → 결과 → 풀이 제출 화면
-});
+$("solution-retry-btn").addEventListener("click", retry);
 
 // ─── 유사 문제 추천 (설계 단계) ──────────────────────
 // 실패해도 결과 화면에는 아무것도 띄우지 않는다
 async function loadRecommendation(result, totalSteps, history) {
   let data;
   try {
-    data = await postJson("/recommend", {
+    const body = {
       error_category: result.error_category,
       problem_text: S.problem.text,
       error_step_index: result.error_step_index,
       total_steps: totalSteps,
       history,
-    });
+    };
+    if (S.problem.key) body.problem_key = S.problem.key;
+    data = await postJson("/recommend", body);
   } catch (e) {
     return;
   }
   const slot = $("rec-slot");
   if (!slot || !data.recommended) return;
   slot.innerHTML = recommendationCard(data, result.error_category);
+  const btn = $("rec-solve-btn");
+  if (btn) btn.addEventListener("click", () => startFromBank(data.recommended.key));
 }
 
 function recommendationCard(data, category) {
@@ -515,11 +717,12 @@ function recommendationCard(data, category) {
   const body = rec.text.replace(/^\[[^\]]+\]\s*/, "");
   const stage = STAGE_NAMES[data.student_stage];
   const typeName = ERROR_TYPE_NAMES[category] || category;
+  const inBank = S.bank.some(p => p.key === rec.key);
 
   const rows = [
     ["함정 위치", b.trap_match, b.trap_match ? `${STAGE_NAMES[rec.trap]}에 함정이 있는 문제` : "함정 위치가 다름"],
     ["난이도", b.difficulty_fit, `${LEVEL_NAMES[rec.level] || rec.level} 문제 · 목표 ${LEVEL_NAMES[data.target_level] || data.target_level}`],
-    ["새로움", b.novelty, "찍은 문제와 소재·문장이 다른 정도"],
+    ["새로움", b.novelty, "이 문제와 소재·문장이 다른 정도"],
   ];
 
   return `<div class="card rec-card" id="rec-card">
@@ -531,7 +734,7 @@ function recommendationCard(data, category) {
       같은 실수가 나올 수 있는 문제 중 겉모습이 다른 문제를 골랐습니다.</p>
     <div class="rec-problem">
       ${source ? `<div class="rec-source">${esc(source)}</div>` : ""}
-      <div class="rec-text">${esc(body)}</div>
+      <div class="rec-text">${esc(plainMath(body))}</div>
     </div>
     <div class="rec-scores">
       ${rows.map(([label, v, note]) => `
@@ -542,6 +745,7 @@ function recommendationCard(data, category) {
         </div>`).join("")}
     </div>
     <div class="rec-formula muted">점수 = 0.4 × 함정 위치 + 0.3 × 난이도 + 0.3 × 새로움 = <b>${fmt(rec.score)}</b></div>
+    ${inBank ? `<button class="btn-secondary rec-solve" id="rec-solve-btn">이 문제 풀어보기</button>` : ""}
   </div>`;
 }
 
@@ -594,7 +798,9 @@ async function loadGeneratedSolution() {
   if (S.solutionCache) { box.innerHTML = S.solutionCache; return; }
   box.innerHTML = `<div class="card center-msg small"><div class="spinner"></div><div class="muted">해설을 만드는 중입니다</div></div>`;
   try {
-    const sol = await postJson("/solution", { problem_text: S.problem.text });
+    const body = { problem_text: S.problem.text };
+    if (S.problem.key) body.problem_key = S.problem.key;
+    const sol = await postJson("/solution", body);
     const html = `<div class="meta-row">
         ${(sol.concept_tags || []).map(t => `<div class="chip">${esc(t)}</div>`).join("")}
         ${sol.answer ? `<div class="chip accent">정답 ${esc(plainMath(sol.answer))}</div>` : ""}
@@ -617,3 +823,5 @@ async function loadGeneratedSolution() {
 function fmt(v) { return (typeof v === "number" ? v : 0).toFixed(2); }
 function setText(id, msg) { $(id).textContent = msg; }
 function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+loadBank();

@@ -1,6 +1,6 @@
 """시연 화면: 홈 → 문제 촬영(사이트 안 카메라) → Gemini Flash OCR → 확인 → 풀이 촬영 → 채점 → 힌트 → 해설"""
-from conftest import (GRADE_CORRECT, OCR_PROBLEM_OTHER, album, shoot_problem, submit, to_solve,
-                      upload, wait_camera_ready)
+from conftest import (GRADE_CORRECT, OCR_PROBLEM_OTHER, album, read_solution, shoot_problem, submit,
+                      to_solve, upload, wait_camera_ready)
 
 
 # ─── 홈 · 카메라 ─────────────────────────────────────
@@ -183,11 +183,12 @@ def test_retry_counts_attempts_and_resets_photo(page):
     assert "2번째" in page.inner_text(".attempt-info")
 
 
-def test_back_from_result_goes_to_solve_not_processing(page):
+def test_back_from_result_goes_to_check_not_processing(page):
     upload(page)
     submit(page)
     page.go_back()
-    page.wait_for_selector("#screen-solve.active")
+    page.wait_for_selector("#screen-check.active")
+    assert page.locator(".line-input").count() == 2
 
 
 def test_ocr_failure_returns_to_solve_with_message(page, api):
@@ -196,6 +197,117 @@ def test_ocr_failure_returns_to_solve_with_message(page, api):
     page.click("#submit-btn")
     page.wait_for_selector("#screen-solve.active")
     assert "사진에서 글씨를 찾지 못했습니다" in page.inner_text("#submit-error")
+
+
+def test_grade_failure_stays_on_check_with_message(page, api):
+    api.responses["grade"] = {"success": False, "error": "채점 서버 오류"}
+    upload(page)
+    read_solution(page)
+    page.click("#grade-btn")
+    page.wait_for_selector("#screen-check.active")
+    assert "채점 서버 오류" in page.inner_text("#check-error")
+
+
+# ─── 읽은 내용 확인·수정 ─────────────────────────────
+def test_solution_lines_are_shown_for_checking(page):
+    upload(page)
+    read_solution(page)
+    values = page.eval_on_selector_all(".line-input", "els => els.map(e => e.value)")
+    assert values == ["aaa가 양 끝: 44 × 2 = 88", "답 88"]
+    assert "Gemini Flash" in page.inner_text("#screen-check .ocr-meta")
+
+
+def test_edited_lines_are_graded(page, api):
+    upload(page)
+    read_solution(page)
+    page.fill('.line-input[data-i="1"]', "답 188")
+    page.click("#add-line-btn")
+    page.fill('.line-input[data-i="2"]', "끝")
+    page.click('.line-del[data-i="0"]')
+    page.click("#grade-btn")
+    page.wait_for_selector("#screen-result.active")
+    assert api.calls["grade"][0]["solution_steps"] == [{"index": 1, "text": "답 188"}, {"index": 2, "text": "끝"}]
+
+
+def test_empty_lines_cannot_be_graded(page, api):
+    upload(page)
+    read_solution(page)
+    page.click('.line-del[data-i="0"]')
+    page.click('.line-del[data-i="0"]')
+    page.click("#grade-btn")
+    assert "줄이 없어요" in page.inner_text("#check-error")
+    assert "grade" not in api.calls
+
+
+def test_problem_text_can_be_edited(page, api):
+    api.responses["ocr_problem"] = OCR_PROBLEM_OTHER
+    shoot_problem(page)
+    page.click("#confirm-edit-btn")
+    page.fill("#confirm-textarea", "남학생 6명과 여학생 5명 중에서 4명을 뽑는 경우의 수는?")
+    page.click("#confirm-edit-save")
+    assert "4명을 뽑는" in page.inner_text("#confirm-problem")
+    page.click("#confirm-ok-btn")
+    page.wait_for_selector("#screen-solve.active")
+    upload(page)
+    submit(page)
+    assert "4명을 뽑는" in api.calls["grade"][0]["problem_text"]
+
+
+def test_demo_problem_stays_demo_after_small_edit(page, api):
+    shoot_problem(page)
+    page.click("#confirm-edit-btn")
+    text = page.input_value("#confirm-textarea").replace("[4점]", "")
+    page.fill("#confirm-textarea", text + " ")
+    page.click("#confirm-edit-save")
+    page.click("#confirm-ok-btn")
+    upload(page)
+    submit(page)
+    assert api.calls["grade"][0]["problem_key"] == "DEMO-30"
+
+
+# ─── 홈: 문제 골라 풀기 ──────────────────────────────
+def test_home_lists_problems(page):
+    page.wait_for_selector(".bank-item")
+    items = page.locator(".bank-item")
+    assert items.count() == 3                     # 30번 + 서버 문제 2개
+    assert "시연 문제 30번" in items.nth(0).inner_text()
+    assert "남학생 6명" in items.nth(1).inner_text()
+
+
+def test_level_filter(page):
+    page.wait_for_selector(".bank-item")
+    page.click('#bank-filters [data-level="기본"]')
+    assert page.locator(".bank-item").count() == 1
+    assert "일품 23" in page.inner_text("#bank-list")
+
+
+def test_bank_problem_goes_straight_to_solve_and_sends_key(page, api):
+    page.wait_for_selector(".bank-item")
+    page.click('.bank-item[data-key="P-1"]')
+    page.wait_for_selector("#screen-solve.active")
+    assert "남학생 6명" in page.inner_text("#solve-problem")
+    upload(page)
+    submit(page)
+    body = api.calls["grade"][0]
+    assert body["problem_key"] == "P-1" and "correct_answer" not in body
+    assert "ocr" in api.calls and all(c["mode"] == "solution" for c in api.calls["ocr"])
+
+
+def test_bank_demo_item_uses_demo_grading(page, api):
+    page.wait_for_selector(".bank-item")
+    page.click(f'.bank-item[data-key="DEMO-30"]')
+    page.wait_for_selector("#screen-solve.active")
+    upload(page)
+    submit(page)
+    assert api.calls["grade"][0]["problem_key"] == "DEMO-30"
+
+
+def test_back_from_bank_problem_returns_home(page):
+    page.wait_for_selector(".bank-item")
+    page.click('.bank-item[data-key="P-1"]')
+    page.wait_for_selector("#screen-solve.active")
+    page.click("#screen-solve [data-back]")
+    page.wait_for_selector("#screen-home.active")
 
 
 def test_new_problem_button_goes_home(page):
@@ -244,6 +356,16 @@ def test_other_problem_solution_is_generated(page, api):
     page.wait_for_selector("#solution-body .sol-step")
     assert "310" in page.inner_text("#solution-body")
     assert "남학생" in api.calls["solution"][0]["problem_text"]
+
+
+def test_bank_solution_request_sends_key(page, api):
+    page.wait_for_selector(".bank-item")
+    page.click('.bank-item[data-key="P-1"]')
+    upload(page)
+    submit(page)
+    page.click("#solution-btn")
+    page.wait_for_selector("#solution-body .sol-step")
+    assert api.calls["solution"][0]["problem_key"] == "P-1"
 
 
 def test_solution_retry_goes_to_solve(page):

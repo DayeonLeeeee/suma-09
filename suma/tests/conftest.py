@@ -70,6 +70,13 @@ RECOMMEND_OK = {
     "same_type_error_count": 1,
 }
 
+PROBLEMS = {"success": True, "problems": [
+    {"key": "P-1", "source": "", "level": "중간",
+     "text": "남학생 6명과 여학생 5명이 봉사활동에 지원하였고, 지원자 11명 중에서 4명을 선발할 때, 남학생과 여학생이 적어도 한 명씩은 포함되도록 하는 경우의 수는?\n\n① 300  ② 305"},
+    {"key": "Q2-5", "source": "일품 23", "level": "기본",
+     "text": "주머니 안에 1, 2, 3, 4, 5, 6, 7의 숫자가 각각 하나씩 적힌 7개의 공이 들어 있다.\n\n① 25  ② 26"},
+]}
+
 SOLUTION_GENERATED = {
     "success": True, "answer": "310", "concept_tags": ["여사건"],
     "steps": [{"step": 1, "title": "전체", "content": "$_{11}C_4$", "formula": "$330$"}],
@@ -85,6 +92,7 @@ class FakeApi:
             "grade": copy.deepcopy(GRADE_WRONG),
             "recommend": copy.deepcopy(RECOMMEND_OK),
             "solution": copy.deepcopy(SOLUTION_GENERATED),
+            "problems": copy.deepcopy(PROBLEMS),
         }
         self.status = {}
         self.supabase_requests = []
@@ -191,6 +199,14 @@ def upload(page):
     page.wait_for_selector("#solution-preview", state="visible")
 
 
-def submit(page):
+def read_solution(page):
+    """풀이 사진 → 풀이 읽기 → 줄별 확인 화면"""
     page.click("#submit-btn")
+    page.wait_for_selector("#screen-check.active", timeout=15000)
+
+
+def submit(page):
+    """풀이 읽기 → 확인 화면에서 그대로 채점"""
+    read_solution(page)
+    page.click("#grade-btn")
     page.wait_for_selector("#screen-result.active", timeout=15000)

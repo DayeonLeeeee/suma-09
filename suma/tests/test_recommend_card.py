@@ -48,6 +48,15 @@ def test_second_wrong_submission_sends_history(page, api):
     assert api.calls["recommend"][1]["history"] == [{"error_category": "B01", "is_correct": False}]
 
 
+def test_recommended_bank_problem_can_be_solved(page, api):
+    upload(page)
+    submit(page)
+    wait_card(page)
+    page.click("#rec-solve-btn")
+    page.wait_for_selector("#screen-solve.active")
+    assert "주머니 안에" in page.inner_text("#solve-problem")
+
+
 def test_correct_answer_skips_recommendation(page, api):
     api.responses["grade"] = GRADE_CORRECT
     upload(page)
